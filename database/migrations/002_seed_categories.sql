@@ -1,0 +1,86 @@
+INSERT INTO categories (name, parent_id, level, description) VALUES
+    ('Technology', NULL, 1, NULL),
+    ('Finance', NULL, 1, NULL),
+    ('Energy', NULL, 1, NULL),
+    ('Automotive', NULL, 1, NULL),
+    ('Healthcare', NULL, 1, NULL),
+    ('Consumer', NULL, 1, NULL),
+    ('Industrials', NULL, 1, NULL),
+    ('Real Estate', NULL, 1, NULL),
+    ('Commodities', NULL, 1, NULL),
+    ('Cryptocurrency', NULL, 1, NULL);
+
+INSERT INTO categories (name, parent_id, level, description)
+SELECT t.name, c.id, 2, NULL
+FROM (VALUES
+    ('Software', 'Technology'),
+    ('Semiconductors', 'Technology'),
+    ('Cybersecurity', 'Technology'),
+    ('Gaming', 'Technology'),
+    ('AI & Machine Learning', 'Technology'),
+    ('Banking', 'Finance'),
+    ('Fintech', 'Finance'),
+    ('Investment', 'Finance'),
+    ('Insurance', 'Finance'),
+    ('Oil & Gas', 'Energy'),
+    ('Renewable Energy', 'Energy'),
+    ('Utilities', 'Energy'),
+    ('Electric Vehicles', 'Automotive'),
+    ('Traditional Auto', 'Automotive'),
+    ('Auto Parts', 'Automotive'),
+    ('Pharmaceuticals', 'Healthcare'),
+    ('Biotechnology', 'Healthcare'),
+    ('Medical Devices', 'Healthcare'),
+    ('E-Commerce', 'Consumer'),
+    ('Food & Beverage', 'Consumer'),
+    ('Media & Entertainment', 'Consumer'),
+    ('Aerospace & Defense', 'Industrials'),
+    ('Transportation & Logistics', 'Industrials'),
+    ('Precious Metals', 'Commodities'),
+    ('Agriculture', 'Commodities'),
+    ('Base Metals', 'Commodities'),
+    ('Bitcoin', 'Cryptocurrency'),
+    ('Altcoins', 'Cryptocurrency'),
+    ('DeFi', 'Cryptocurrency')
+) AS t(name, parent_name)
+JOIN categories c ON c.name = t.parent_name;
+
+INSERT INTO categories (name, parent_id, level, description)
+SELECT t.name, c.id, 3, NULL
+FROM (VALUES
+    ('SaaS', 'Software'),
+    ('Enterprise Software', 'Software'),
+    ('Mobile Applications', 'Software'),
+    ('GPU & Chips', 'Semiconductors'),
+    ('Memory & Storage', 'Semiconductors'),
+    ('Network Security', 'Cybersecurity'),
+    ('Cloud Security', 'Cybersecurity'),
+    ('Mobile Gaming', 'Gaming'),
+    ('Console Gaming', 'Gaming'),
+    ('PC Gaming', 'Gaming'),
+    ('Large Language Models', 'AI & Machine Learning'),
+    ('Computer Vision', 'AI & Machine Learning'),
+    ('Retail Banking', 'Banking'),
+    ('Investment Banking', 'Banking'),
+    ('Central Banking', 'Banking'),
+    ('Payments', 'Fintech'),
+    ('Digital Lending', 'Fintech'),
+    ('Solar Energy', 'Renewable Energy'),
+    ('Wind Energy', 'Renewable Energy'),
+    ('Hydrogen Energy', 'Renewable Energy'),
+    ('EV Battery Technology', 'Electric Vehicles'),
+    ('EV Charging Infrastructure', 'Electric Vehicles'),
+    ('EV Policy & Subsidies', 'Electric Vehicles'),
+    ('Clinical Trials', 'Pharmaceuticals'),
+    ('Drug Approvals', 'Pharmaceuticals'),
+    ('Gene Therapy', 'Biotechnology'),
+    ('Online Retail', 'E-Commerce'),
+    ('Marketplace Platforms', 'E-Commerce'),
+    ('Streaming Services', 'Media & Entertainment'),
+    ('Gold & Silver', 'Precious Metals'),
+    ('Bitcoin Mining', 'Bitcoin'),
+    ('Bitcoin ETF', 'Bitcoin'),
+    ('Stablecoins', 'DeFi'),
+    ('Yield Farming', 'DeFi')
+) AS t(name, parent_name)
+JOIN categories c ON c.name = t.parent_name;
