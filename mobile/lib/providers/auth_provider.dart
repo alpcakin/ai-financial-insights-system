@@ -30,6 +30,7 @@ class AuthState {
   final String? error;
   final String? userId;
   final String? email;
+  final String? token;
 
   const AuthState({
     this.isAuthenticated = false,
@@ -37,6 +38,7 @@ class AuthState {
     this.error,
     this.userId,
     this.email,
+    this.token,
   });
 
   /// Creates a copy with only the specified fields changed.
@@ -47,6 +49,7 @@ class AuthState {
     String? error,
     String? userId,
     String? email,
+    String? token,
   }) =>
       AuthState(
         isAuthenticated: isAuthenticated ?? this.isAuthenticated,
@@ -54,6 +57,7 @@ class AuthState {
         error: error,
         userId: userId ?? this.userId,
         email: email ?? this.email,
+        token: token ?? this.token,
       );
 }
 
@@ -77,6 +81,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         isAuthenticated: true,
         userId: userId,
         email: email,
+        token: token,
       );
     }
   }
@@ -93,6 +98,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         isLoading: false,
         userId: token.userId,
         email: token.email,
+        token: token.accessToken,
       );
       return true;
     } on AuthException catch (e) {
@@ -116,6 +122,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         isLoading: false,
         userId: token.userId,
         email: token.email,
+        token: token.accessToken,
       );
       return true;
     } on AuthException catch (e) {
