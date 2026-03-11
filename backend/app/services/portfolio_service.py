@@ -5,6 +5,7 @@ from supabase import Client
 import yfinance as yf
 
 from app.models.portfolio import AddAssetRequest, AssetResponse, PortfolioResponse, UpdateAssetRequest
+from app.services.topic_service import auto_subscribe, auto_unsubscribe
 
 
 def _get_current_price(symbol: str) -> float | None:
@@ -17,67 +18,37 @@ def _get_current_price(symbol: str) -> float | None:
         return None
 
 
-def _auto_subscribe(db: Client, user_id: str, category_name: str | None) -> None:
-    if not category_name:
-        return
-
-    cat_result = (
-        db.table('categories')
-        .select('id')
-        .eq('name', category_name)
-        .execute()
-    )
-    if not cat_result.data:
-        return
-
-    category_id = cat_result.data[0]['id']
-    db.table('followed_topics').upsert(
-        {'user_id': user_id, 'category_id': category_id, 'source': 'auto'},
-        on_conflict='user_id,category_id',
-    ).execute()
-
-
-def _auto_unsubscribe(db: Client, user_id: str, category_name: str | None) -> None:
-    if not category_name:
-        return
-
-    remaining_portfolio = (
-        db.table('portfolio')
-        .select('id')
-        .eq('user_id', user_id)
-        .eq('category', category_name)
-        .execute()
-    )
-    remaining_watchlist = (
-        db.table('watchlist')
-        .select('id')
-        .eq('user_id', user_id)
-        .eq('category', category_name)
-        .execute()
-    )
-    if remaining_portfolio.data or remaining_watchlist.data:
-        return
-
-    cat_result = (
-        db.table('categories')
-        .select('id')
-        .eq('name', category_name)
-        .execute()
-    )
-    if not cat_result.data:
-        return
-
-    category_id = cat_result.data[0]['id']
-    db.table('followed_topics').delete().eq('user_id', user_id).eq('category_id', category_id).eq('source', 'auto').execute()
+def _get_current_prices(symbols: list[str]) -> dict[str, float | None]:
+    if not symbols:
+        return {}
+    try:
+        tickers = yf.Tickers(" ".join(symbols))
+        result = {}
+        for sym in symbols:
+            try:
+                price = tickers.tickers[sym].fast_info.last_price
+                if price is None or price == 0 or math.isnan(price):
+                    result[sym] = None
+                else:
+                    result[sym] = float(price)
+            except Exception:
+                result[sym] = None
+        return result
+    except Exception:
+        return {sym: None for sym in symbols}
 
 
 def get_portfolio(db: Client, user_id: str) -> PortfolioResponse:
     result = db.table('portfolio').select('*').eq('user_id', user_id).execute()
+
+    symbols = [row['asset_symbol'] for row in result.data]
+    prices = _get_current_prices(symbols)
+
     assets = []
     total_value = 0.0
 
     for row in result.data:
-        price = _get_current_price(row['asset_symbol'])
+        price = prices.get(row['asset_symbol'])
         value = price * row['quantity'] if price is not None else None
         if value is not None:
             total_value += value
@@ -130,9 +101,9 @@ def add_asset(db: Client, user_id: str, request: AddAssetRequest) -> AssetRespon
         )
 
     row = result.data[0]
-    value = price * request.quantity
+    value = price * request.quantity if price is not None else None
 
-    _auto_subscribe(db, user_id, request.category)
+    auto_subscribe(db, user_id, request.category)
 
     return AssetResponse(
         id=row['id'],
@@ -205,4 +176,4 @@ def delete_asset(db: Client, user_id: str, asset_id: str) -> None:
 
     category = ownership.data[0].get('category')
     db.table('portfolio').delete().eq('id', asset_id).execute()
-    _auto_unsubscribe(db, user_id, category)
+    auto_unsubscribe(db, user_id, category)
