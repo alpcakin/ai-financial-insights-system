@@ -27,6 +27,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     });
   }
 
+  Future<void> _refresh() async {
+    final token = ref.read(authProvider).token ?? '';
+    await Future.wait([
+      ref.read(portfolioProvider.notifier).load(token),
+      ref.read(watchlistProvider.notifier).load(token),
+    ]);
+  }
+
   Future<AssetInfo?> _openBrowser() {
     return showDialog<AssetInfo>(
       context: context,
@@ -49,7 +57,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (result == false) {
       final error = ref.read(portfolioProvider).error;
       if (error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
       }
     }
   }
@@ -59,11 +69,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (asset == null || !mounted) return;
     final token = ref.read(authProvider).token ?? '';
     try {
-      await ref.read(watchlistProvider.notifier).add(token, symbol: asset.symbol, type: asset.type, category: asset.category);
+      await ref
+          .read(watchlistProvider.notifier)
+          .add(
+            token,
+            symbol: asset.symbol,
+            type: asset.type,
+            category: asset.category,
+          );
     } catch (_) {
       if (!mounted) return;
-      final error = ref.read(watchlistProvider).error ?? 'Failed to add to watchlist';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      final error =
+          ref.read(watchlistProvider).error ?? 'Failed to add to watchlist';
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
     }
   }
 
@@ -75,7 +95,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } catch (_) {
       if (mounted) {
         final error = ref.read(portfolioProvider).error ?? 'Failed to delete';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
       }
       return false;
     }
@@ -89,7 +111,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } catch (_) {
       if (mounted) {
         final error = ref.read(watchlistProvider).error ?? 'Failed to delete';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
       }
       return false;
     }
@@ -108,7 +132,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (result == false) {
       final error = ref.read(portfolioProvider).error;
       if (error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
       }
     }
   }
@@ -120,17 +146,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     ref.listen(portfolioProvider, (_, next) {
       if (next.error != null && !next.isLoading) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(next.error!)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(next.error!)));
       }
     });
 
     ref.listen(watchlistProvider, (_, next) {
       if (next.error != null && !next.isLoading) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(next.error!)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(next.error!)));
       }
     });
 
-    final totalValue = portfolioState.assets.fold(0.0, (sum, a) => sum + (a.currentValue ?? 0.0));
+    final totalValue = portfolioState.assets.fold(
+      0.0,
+      (sum, a) => sum + (a.currentValue ?? 0.0),
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -142,40 +175,44 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      body: CustomScrollView(
-        slivers: [
-          SliverToBoxAdapter(
-            child: _SectionHeader(
-              title: 'Portfolio',
-              onAdd: _openBrowserForPortfolio,
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: _TotalValueBanner(totalValue: totalValue),
-          ),
-          if (portfolioState.isLoading && portfolioState.assets.isEmpty)
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 32),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-            )
-          else if (portfolioState.assets.isEmpty)
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
             SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Center(
-                  child: Text(
-                    'No assets yet. Tap + to add one.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+              child: _SectionHeader(
+                title: 'Portfolio',
+                onAdd: _openBrowserForPortfolio,
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _TotalValueBanner(totalValue: totalValue),
+            ),
+            if (portfolioState.isLoading && portfolioState.assets.isEmpty)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              )
+            else if (portfolioState.assets.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: Text(
+                      'No assets yet. Tap + to add one.',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                    ),
                   ),
                 ),
-              ),
-            )
-          else
-            SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
+              )
+            else
+              SliverList(
+                delegate: SliverChildBuilderDelegate((context, index) {
                   final asset = portfolioState.assets[index];
                   return Dismissible(
                     key: Key(asset.id),
@@ -192,45 +229,44 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       onTap: () => _showEditAssetSheet(asset),
                     ),
                   );
-                },
-                childCount: portfolioState.assets.length,
+                }, childCount: portfolioState.assets.length),
               ),
-            ),
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 8),
-              child: Divider(),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: _SectionHeader(
-              title: 'Watchlist',
-              onAdd: _openBrowserForWatchlist,
-            ),
-          ),
-          if (watchlistState.isLoading && watchlistState.items.isEmpty)
             const SliverToBoxAdapter(
               child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 32),
-                child: Center(child: CircularProgressIndicator()),
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Divider(),
               ),
-            )
-          else if (watchlistState.items.isEmpty)
+            ),
             SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Center(
-                  child: Text(
-                    'No items yet. Tap + to add one.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+              child: _SectionHeader(
+                title: 'Watchlist',
+                onAdd: _openBrowserForWatchlist,
+              ),
+            ),
+            if (watchlistState.isLoading && watchlistState.items.isEmpty)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              )
+            else if (watchlistState.items.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: Text(
+                      'No items yet. Tap + to add one.',
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+                    ),
                   ),
                 ),
-              ),
-            )
-          else
-            SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
+              )
+            else
+              SliverList(
+                delegate: SliverChildBuilderDelegate((context, index) {
                   final item = watchlistState.items[index];
                   return Dismissible(
                     key: Key(item.id),
@@ -244,12 +280,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     confirmDismiss: (_) => _deleteWatchlistItem(item),
                     child: _WatchlistTile(item: item),
                   );
-                },
-                childCount: watchlistState.items.length,
+                }, childCount: watchlistState.items.length),
               ),
-            ),
-          const SliverToBoxAdapter(child: SizedBox(height: 32)),
-        ],
+            const SliverToBoxAdapter(child: SizedBox(height: 32)),
+          ],
+        ),
       ),
     );
   }
@@ -270,7 +305,9 @@ class _SectionHeader extends StatelessWidget {
           Expanded(
             child: Text(
               title,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
           ),
           TextButton.icon(
@@ -301,9 +338,9 @@ class _TotalValueBanner extends StatelessWidget {
           Text(
             '\$${totalValue.toStringAsFixed(2)}',
             style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                ),
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).colorScheme.onPrimaryContainer,
+            ),
           ),
         ],
       ),
@@ -343,16 +380,19 @@ class _AssetCard extends StatelessWidget {
                       children: [
                         Text(
                           asset.assetSymbol,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
+                          style: Theme.of(context).textTheme.titleMedium
                               ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.secondaryContainer,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.secondaryContainer,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
@@ -374,10 +414,9 @@ class _AssetCard extends StatelessWidget {
                       ),
                       Text(
                         '\$${currentVal.toStringAsFixed(2)}',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: Colors.grey[600]),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.grey[600],
+                        ),
                       ),
                     ],
                   ),
@@ -389,10 +428,9 @@ class _AssetCard extends StatelessWidget {
                 children: [
                   Text(
                     '${asset.quantity} × \$${asset.purchasePrice.toStringAsFixed(2)}',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: Colors.grey[600]),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
                   ),
                   Row(
                     children: [
@@ -433,8 +471,8 @@ class _WatchlistTile extends StatelessWidget {
     final color = change == null
         ? Colors.grey
         : isPositive
-            ? Colors.green
-            : Colors.red;
+        ? Colors.green
+        : Colors.red;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -448,14 +486,16 @@ class _WatchlistTile extends StatelessWidget {
                 children: [
                   Text(
                     item.assetSymbol,
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: Theme.of(context).colorScheme.secondaryContainer,
                       borderRadius: BorderRadius.circular(12),
@@ -475,10 +515,9 @@ class _WatchlistTile extends StatelessWidget {
                   item.currentPrice != null
                       ? '\$${item.currentPrice!.toStringAsFixed(2)}'
                       : '—',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Row(
@@ -515,10 +554,12 @@ class _PortfolioDetailsSheet extends ConsumerStatefulWidget {
   const _PortfolioDetailsSheet({required this.asset});
 
   @override
-  ConsumerState<_PortfolioDetailsSheet> createState() => _PortfolioDetailsSheetState();
+  ConsumerState<_PortfolioDetailsSheet> createState() =>
+      _PortfolioDetailsSheetState();
 }
 
-class _PortfolioDetailsSheetState extends ConsumerState<_PortfolioDetailsSheet> {
+class _PortfolioDetailsSheetState
+    extends ConsumerState<_PortfolioDetailsSheet> {
   final _formKey = GlobalKey<FormState>();
   final _quantityCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
@@ -536,7 +577,9 @@ class _PortfolioDetailsSheetState extends ConsumerState<_PortfolioDetailsSheet> 
     final quantity = double.parse(_quantityCtrl.text.trim());
     final price = double.parse(_priceCtrl.text.trim());
     try {
-      await ref.read(portfolioProvider.notifier).add(
+      await ref
+          .read(portfolioProvider.notifier)
+          .add(
             token,
             symbol: widget.asset.symbol,
             type: widget.asset.type,
@@ -573,16 +616,21 @@ class _PortfolioDetailsSheetState extends ConsumerState<_PortfolioDetailsSheet> 
             ),
             Text(
               widget.asset.name,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.grey),
             ),
             const SizedBox(height: 16),
             TextFormField(
               controller: _quantityCtrl,
               decoration: const InputDecoration(labelText: 'Quantity'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               autofocus: true,
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Quantity is required';
+                if (v == null || v.trim().isEmpty)
+                  return 'Quantity is required';
                 final n = double.tryParse(v.trim());
                 if (n == null || n <= 0) return 'Must be greater than 0';
                 return null;
@@ -592,9 +640,12 @@ class _PortfolioDetailsSheetState extends ConsumerState<_PortfolioDetailsSheet> 
             TextFormField(
               controller: _priceCtrl,
               decoration: const InputDecoration(labelText: 'Purchase Price'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Purchase price is required';
+                if (v == null || v.trim().isEmpty)
+                  return 'Purchase price is required';
                 final n = double.tryParse(v.trim());
                 if (n == null || n <= 0) return 'Must be greater than 0';
                 return null;
@@ -651,7 +702,9 @@ class _EditAssetSheetState extends ConsumerState<_EditAssetSheet> {
     final quantity = double.parse(_quantityCtrl.text.trim());
     final price = double.parse(_priceCtrl.text.trim());
     try {
-      await ref.read(portfolioProvider.notifier).update(
+      await ref
+          .read(portfolioProvider.notifier)
+          .update(
             token,
             id: widget.asset.id,
             quantity: quantity,
@@ -688,9 +741,12 @@ class _EditAssetSheetState extends ConsumerState<_EditAssetSheet> {
             TextFormField(
               controller: _quantityCtrl,
               decoration: const InputDecoration(labelText: 'Quantity'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Quantity is required';
+                if (v == null || v.trim().isEmpty)
+                  return 'Quantity is required';
                 final n = double.tryParse(v.trim());
                 if (n == null || n <= 0) return 'Must be greater than 0';
                 return null;
@@ -700,9 +756,12 @@ class _EditAssetSheetState extends ConsumerState<_EditAssetSheet> {
             TextFormField(
               controller: _priceCtrl,
               decoration: const InputDecoration(labelText: 'Purchase Price'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Purchase price is required';
+                if (v == null || v.trim().isEmpty)
+                  return 'Purchase price is required';
                 final n = double.tryParse(v.trim());
                 if (n == null || n <= 0) return 'Must be greater than 0';
                 return null;

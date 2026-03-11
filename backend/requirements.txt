@@ -4,7 +4,7 @@ celery==5.4.0
 redis==5.0.8
 supabase==2.7.4
 openai==1.47.0
-yfinance==0.2.43
+yfinance>=1.2.0
 requests==2.32.3
 python-jose[cryptography]==3.3.0
 bcrypt==4.2.0

@@ -5,7 +5,7 @@ from supabase import Client
 import yfinance as yf
 
 from app.models.watchlist import AddWatchlistRequest, WatchlistItemResponse
-from app.services.portfolio_service import _auto_subscribe, _auto_unsubscribe
+from app.services.topic_service import auto_subscribe, auto_unsubscribe
 
 
 def _get_price_info(symbol: str) -> tuple[float | None, float | None, float | None]:
@@ -30,8 +30,40 @@ def _get_price_info(symbol: str) -> tuple[float | None, float | None, float | No
         return None, None, None
 
 
-def _build_response(row: dict) -> WatchlistItemResponse:
-    price, change, change_pct = _get_price_info(row['asset_symbol'])
+def _get_batch_price_info(symbols: list[str]) -> dict[str, tuple[float | None, float | None, float | None]]:
+    if not symbols:
+        return {}
+    try:
+        tickers = yf.Tickers(" ".join(symbols))
+        result = {}
+        for sym in symbols:
+            try:
+                fast_info = tickers.tickers[sym].fast_info
+                price = fast_info.last_price
+                prev_close = fast_info.previous_close
+
+                if price is None or math.isnan(price):
+                    result[sym] = (None, None, None)
+                    continue
+
+                price = float(price)
+                change: float | None = None
+                change_pct: float | None = None
+
+                if prev_close and not math.isnan(prev_close) and prev_close > 0:
+                    change = price - float(prev_close)
+                    change_pct = (change / float(prev_close)) * 100
+
+                result[sym] = (price, change, change_pct)
+            except Exception:
+                result[sym] = (None, None, None)
+        return result
+    except Exception:
+        return {sym: (None, None, None) for sym in symbols}
+
+
+def _build_response(row: dict, price_info: tuple[float | None, float | None, float | None]) -> WatchlistItemResponse:
+    price, change, change_pct = price_info
     return WatchlistItemResponse(
         id=row['id'],
         user_id=row['user_id'],
@@ -46,7 +78,11 @@ def _build_response(row: dict) -> WatchlistItemResponse:
 
 def get_watchlist(db: Client, user_id: str) -> list[WatchlistItemResponse]:
     result = db.table('watchlist').select('*').eq('user_id', user_id).execute()
-    return [_build_response(row) for row in result.data]
+
+    symbols = [row['asset_symbol'] for row in result.data]
+    prices = _get_batch_price_info(symbols)
+
+    return [_build_response(row, prices.get(row['asset_symbol'], (None, None, None))) for row in result.data]
 
 
 def add_item(db: Client, user_id: str, request: AddWatchlistRequest) -> WatchlistItemResponse:
@@ -78,8 +114,9 @@ def add_item(db: Client, user_id: str, request: AddWatchlistRequest) -> Watchlis
             detail='Failed to add to watchlist',
         )
 
-    _auto_subscribe(db, user_id, request.category)
-    return _build_response(result.data[0])
+    auto_subscribe(db, user_id, request.category)
+    price_info = _get_price_info(symbol)
+    return _build_response(result.data[0], price_info)
 
 
 def delete_item(db: Client, user_id: str, item_id: str) -> None:
@@ -98,4 +135,4 @@ def delete_item(db: Client, user_id: str, item_id: str) -> None:
 
     category = ownership.data[0].get('category')
     db.table('watchlist').delete().eq('id', item_id).execute()
-    _auto_unsubscribe(db, user_id, category)
+    auto_unsubscribe(db, user_id, category)
