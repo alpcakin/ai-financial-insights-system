@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # Redis is used as the Celery message broker for background tasks
     redis_url: str = "redis://localhost:6379/0"
 
+    # News pipeline settings
+    news_fetch_interval_minutes: int = 0  # 0 = disabled; set >0 to enable APScheduler
+    mediastack_page_size: int = 50
+
     # JWT settings — tokens are signed with HS256 and expire after 24 hours
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"

@@ -11,6 +11,8 @@ dist/
 # IDE
 .idea/
 .vscode/
-
-# Claude
 .claude/
+CLAUDE.md
+LIMITATIONS.md
+DESIGN_DECISIONS.md
+STARTUP_GUIDE.md
