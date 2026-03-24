@@ -4,6 +4,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.services.news_service import fetch_articles, filter_new_articles
 from app.services.ai_service import analyze_article
+from app.services.feed_service import distribute_article
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ def process_news_cycle():
             skipped += 1
             continue
 
-        db.table("articles").insert({
+        insert_result = db.table("articles").insert({
             "title": article["title"],
             "url": article["url"],
             "source": article["source"],
@@ -61,6 +62,15 @@ def process_news_cycle():
             "related_assets": [a["symbol"] for a in analysis["impacted_assets"]],
             "asset_impacts": analysis["impacted_assets"],
         }).execute()
+
+        if insert_result.data:
+            article_id = insert_result.data[0]["id"]
+            distribute_article(
+                db,
+                article_id,
+                [a["symbol"] for a in analysis["impacted_assets"]],
+                analysis["categories"],
+            )
 
         processed += 1
         logger.info("Stored article: %s", article["url"])
