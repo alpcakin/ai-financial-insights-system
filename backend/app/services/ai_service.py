@@ -51,9 +51,11 @@ Respond in this exact JSON format:
 }}
 Rules:
 - Only include assets from the ACTIVE ASSETS list
-- Only include assets that are MEANINGFULLY impacted
+- Evaluate EVERY asset in the list for potential impact — including indirect effects via competition, market shifts, regulatory changes, or sector dynamics
+- Only include assets where the asset-level severity is 4 or above
+- A competitor losing market share is a POSITIVE impact for rivals — reason this through
 - severity 1-3: low, 4-6: moderate, 7-10: high impact
-- If no active assets impacted, return empty array
+- If no active assets meet the threshold, return empty array
 - Categories must be from the provided list
 - Respond ONLY with valid JSON"""
 
