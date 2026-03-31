@@ -5,6 +5,7 @@ from app.core.database import get_db
 from app.services.news_service import fetch_articles, filter_new_articles
 from app.services.ai_service import analyze_article
 from app.services.feed_service import distribute_article
+from app.services.alert_service import generate_impact_alerts
 
 logger = logging.getLogger(__name__)
 
@@ -65,12 +66,17 @@ def process_news_cycle():
 
         if insert_result.data:
             article_id = insert_result.data[0]["id"]
-            distribute_article(
+            user_ids = distribute_article(
                 db,
                 article_id,
                 [a["symbol"] for a in analysis["impacted_assets"]],
                 analysis["categories"],
             )
+            if user_ids and analysis["impacted_assets"]:
+                generate_impact_alerts(
+                    db, article_id,
+                    user_ids, analysis["impacted_assets"],
+                )
 
         processed += 1
         logger.info("Stored article: %s", article["url"])
