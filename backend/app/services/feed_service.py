@@ -9,9 +9,9 @@ def distribute_article(
     article_id: str,
     related_assets: list[str],
     related_categories: list[str],
-) -> int:
+) -> set[str]:
     if not related_assets and not related_categories:
-        return 0
+        return set()
 
     user_ids: set[str] = set()
 
@@ -35,7 +35,7 @@ def distribute_article(
                 user_ids.add(row["user_id"])
 
     if not user_ids:
-        return 0
+        return set()
 
     rows = [{"user_id": uid, "article_id": article_id} for uid in user_ids]
 
@@ -46,7 +46,7 @@ def distribute_article(
             pass
 
     logger.info("Distributed article %s to %d users", article_id, len(rows))
-    return len(rows)
+    return user_ids
 
 
 def get_feed(

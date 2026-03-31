@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     news_fetch_interval_minutes: int = 0  # 0 = disabled; set >0 to enable APScheduler
     mediastack_page_size: int = 50
 
+    # Volatility check interval — 0 = disabled; set >0 to enable scheduled checks
+    volatility_check_interval_minutes: int = 0
+
+    # Firebase (optional — FCM push notifications)
+    firebase_credentials_path: str = "firebase-service-account.json"
+
     # JWT settings — tokens are signed with HS256 and expire after 24 hours
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
