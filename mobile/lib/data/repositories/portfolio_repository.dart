@@ -18,7 +18,7 @@ class PortfolioRepository {
         'Authorization': 'Bearer $token',
       };
 
-  Future<List<PortfolioAsset>> getPortfolio(String token) async {
+  Future<PortfolioResponse> getPortfolio(String token) async {
     final response = await http
         .get(
           Uri.parse('${AppConstants.baseUrl}/portfolio'),
@@ -27,11 +27,8 @@ class PortfolioRepository {
         .timeout(_timeout);
 
     if (response.statusCode == 200) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final assets = body['assets'] as List<dynamic>;
-      return assets
-          .map((e) => PortfolioAsset.fromJson(e as Map<String, dynamic>))
-          .toList();
+      return PortfolioResponse.fromJson(
+          jsonDecode(response.body) as Map<String, dynamic>);
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;

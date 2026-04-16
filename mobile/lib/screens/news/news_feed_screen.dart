@@ -173,7 +173,7 @@ class _ArticleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Opacity(
-      opacity: article.read ? 0.55 : 1.0,
+      opacity: article.read ? 0.75 : 1.0,
       child: Card(
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         child: InkWell(

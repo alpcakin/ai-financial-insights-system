@@ -6,6 +6,8 @@ class PortfolioAsset {
   final double purchasePrice;
   final double? currentPrice;
   final double? currentValue;
+  final double? dailyChange;
+  final double? dailyChangePct;
   final String addedAt;
 
   const PortfolioAsset({
@@ -16,6 +18,8 @@ class PortfolioAsset {
     required this.purchasePrice,
     this.currentPrice,
     this.currentValue,
+    this.dailyChange,
+    this.dailyChangePct,
     required this.addedAt,
   });
 
@@ -31,6 +35,42 @@ class PortfolioAsset {
         currentValue: json['current_value'] != null
             ? (json['current_value'] as num).toDouble()
             : null,
+        dailyChange: json['daily_change'] != null
+            ? (json['daily_change'] as num).toDouble()
+            : null,
+        dailyChangePct: json['daily_change_pct'] != null
+            ? (json['daily_change_pct'] as num).toDouble()
+            : null,
         addedAt: json['added_at'] as String,
+      );
+}
+
+class PortfolioResponse {
+  final List<PortfolioAsset> assets;
+  final double totalValue;
+  final double totalPnl;
+  final double totalPnlPct;
+  final double totalDailyChange;
+  final double totalDailyChangePct;
+
+  const PortfolioResponse({
+    required this.assets,
+    required this.totalValue,
+    required this.totalPnl,
+    required this.totalPnlPct,
+    required this.totalDailyChange,
+    required this.totalDailyChangePct,
+  });
+
+  factory PortfolioResponse.fromJson(Map<String, dynamic> json) =>
+      PortfolioResponse(
+        assets: (json['assets'] as List<dynamic>)
+            .map((e) => PortfolioAsset.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        totalValue: (json['total_value'] as num).toDouble(),
+        totalPnl: (json['total_pnl'] as num).toDouble(),
+        totalPnlPct: (json['total_pnl_pct'] as num).toDouble(),
+        totalDailyChange: (json['total_daily_change'] as num).toDouble(),
+        totalDailyChangePct: (json['total_daily_change_pct'] as num).toDouble(),
       );
 }

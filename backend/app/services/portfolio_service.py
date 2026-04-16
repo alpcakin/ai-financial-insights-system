@@ -38,34 +38,91 @@ def _get_current_prices(symbols: list[str]) -> dict[str, float | None]:
         return {sym: None for sym in symbols}
 
 
+def _get_prices_and_daily_changes(symbols: list[str]) -> dict[str, dict]:
+    if not symbols:
+        return {}
+    result = {}
+    for sym in symbols:
+        try:
+            hist = yf.Ticker(sym).history(period="2d", interval="1d", auto_adjust=False)
+            if len(hist) == 0:
+                result[sym] = {'price': None, 'daily_change': None, 'daily_change_pct': None}
+            elif len(hist) == 1:
+                result[sym] = {'price': float(hist["Close"].iloc[-1]), 'daily_change': None, 'daily_change_pct': None}
+            else:
+                curr = float(hist["Close"].iloc[-1])
+                prev = float(hist["Close"].iloc[-2])
+                if prev == 0:
+                    result[sym] = {'price': curr, 'daily_change': None, 'daily_change_pct': None}
+                else:
+                    change = curr - prev
+                    result[sym] = {
+                        'price': curr,
+                        'daily_change': round(change, 4),
+                        'daily_change_pct': round(change / prev * 100, 2),
+                    }
+        except Exception:
+            result[sym] = {'price': None, 'daily_change': None, 'daily_change_pct': None}
+    return result
+
+
 def get_portfolio(db: Client, user_id: str) -> PortfolioResponse:
     result = db.table('portfolio').select('*').eq('user_id', user_id).execute()
 
     symbols = [row['asset_symbol'] for row in result.data]
-    prices = _get_current_prices(symbols)
+    price_data = _get_prices_and_daily_changes(symbols)
 
     assets = []
     total_value = 0.0
+    total_cost = 0.0
+    total_daily_change = 0.0
+    total_prev_value = 0.0
 
     for row in result.data:
-        price = prices.get(row['asset_symbol'])
-        value = price * row['quantity'] if price is not None else None
+        data = price_data.get(row['asset_symbol'], {})
+        price = data.get('price')
+        daily_change = data.get('daily_change')
+        daily_change_pct = data.get('daily_change_pct')
+        quantity = row['quantity']
+
+        value = price * quantity if price is not None else None
+        cost = row['purchase_price'] * quantity
+
         if value is not None:
             total_value += value
+        total_cost += cost
+
+        if daily_change is not None and price is not None:
+            prev_price = price - daily_change
+            total_daily_change += daily_change * quantity
+            total_prev_value += prev_price * quantity
 
         assets.append(AssetResponse(
             id=row['id'],
             user_id=row['user_id'],
             asset_symbol=row['asset_symbol'],
             asset_type=row['asset_type'],
-            quantity=row['quantity'],
+            quantity=quantity,
             purchase_price=row['purchase_price'],
             current_price=price,
             current_value=value,
+            daily_change=daily_change,
+            daily_change_pct=daily_change_pct,
             added_at=str(row['added_at']),
         ))
 
-    return PortfolioResponse(assets=assets, total_value=total_value)
+    total_pnl = total_value - total_cost
+    total_pnl_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0.0
+    total_daily_change_pct = (total_daily_change / total_prev_value * 100) if total_prev_value > 0 else 0.0
+
+    return PortfolioResponse(
+        assets=assets,
+        total_value=total_value,
+        total_pnl=round(total_pnl, 2),
+        total_pnl_pct=round(total_pnl_pct, 2),
+        total_daily_change=round(total_daily_change, 2),
+        total_daily_change_pct=round(total_daily_change_pct, 2),
+    )
 
 
 def add_asset(db: Client, user_id: str, request: AddAssetRequest) -> AssetResponse:
@@ -114,6 +171,8 @@ def add_asset(db: Client, user_id: str, request: AddAssetRequest) -> AssetRespon
         purchase_price=row['purchase_price'],
         current_price=price,
         current_value=value,
+        daily_change=None,
+        daily_change_pct=None,
         added_at=str(row['added_at']),
     )
 
@@ -156,6 +215,8 @@ def update_asset(db: Client, user_id: str, asset_id: str, request: UpdateAssetRe
         purchase_price=row['purchase_price'],
         current_price=price,
         current_value=value,
+        daily_change=None,
+        daily_change_pct=None,
         added_at=str(row['added_at']),
     )
 
