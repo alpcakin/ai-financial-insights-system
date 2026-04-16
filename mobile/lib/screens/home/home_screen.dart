@@ -11,6 +11,29 @@ import '../../providers/portfolio_provider.dart';
 import '../../providers/watchlist_provider.dart';
 import 'asset_browser_modal.dart';
 
+const _kChartColors = [
+  Color(0xFF1565C0),
+  Color(0xFF6A1B9A),
+  Color(0xFFE65100),
+  Color(0xFF2E7D32),
+  Color(0xFFAD1457),
+  Color(0xFFF57F17),
+  Color(0xFFB71C1C),
+  Color(0xFF00695C),
+  Color(0xFF0277BD),
+  Color(0xFF4527A0),
+  Color(0xFF558B2F),
+  Color(0xFF00838F),
+  Color(0xFF6D4C41),
+  Color(0xFF37474F),
+  Color(0xFF283593),
+  Color(0xFF880E4F),
+  Color(0xFF4E342E),
+  Color(0xFF1B5E20),
+  Color(0xFF004D40),
+  Color(0xFF827717),
+];
+
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -206,6 +229,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       confirmDismiss: (_) => _deletePortfolioAsset(asset),
                       child: _AssetTile(
                         asset: asset,
+                        color: _kChartColors[index % _kChartColors.length],
                         onTap: () => _showEditAssetSheet(asset),
                       ),
                     );
@@ -315,16 +339,6 @@ class _PortfolioHeader extends StatelessWidget {
 
   const _PortfolioHeader({required this.state});
 
-  static const _chartColors = [
-    Color(0xFF3B82F6),
-    Color(0xFF10B981),
-    Color(0xFFF59E0B),
-    Color(0xFF8B5CF6),
-    Color(0xFFEF4444),
-    Color(0xFF06B6D4),
-    Color(0xFFEC4899),
-    Color(0xFF84CC16),
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -406,7 +420,7 @@ class _PortfolioHeader extends StatelessWidget {
                   _DonutChart(
                     assets: assetsWithValue,
                     totalValue: state.totalValue,
-                    colors: _chartColors,
+                    colors: _kChartColors,
                   ),
               ],
             ),
@@ -505,50 +519,19 @@ class _DonutChart extends StatelessWidget {
                 return PieChartSectionData(
                   value: pct,
                   color: colors[i % colors.length],
-                  radius: 42,
+                  radius: 44,
                   title: '',
-                  borderSide: const BorderSide(
-                    color: Color(0xFFEFF6FF),
-                    width: 2,
+                  borderSide: BorderSide(
+                    color: Colors.black.withAlpha(40),
+                    width: 1.2,
                   ),
                 );
               }).toList(),
-              centerSpaceRadius: 28,
+              centerSpaceRadius: 30,
               sectionsSpace: 0,
             ),
           ),
         ),
-        const SizedBox(height: 10),
-        ...assets.asMap().entries.take(4).map((entry) {
-          final i = entry.key;
-          final a = entry.value;
-          final pct = (a.currentValue ?? 0) / totalValue * 100;
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 1.5),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: colors[i % colors.length],
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 5),
-                Text(
-                  '${a.assetSymbol} ${pct.toStringAsFixed(0)}%',
-                  style: GoogleFonts.inter(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: const Color(0xFF475569),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }),
       ],
     );
   }
@@ -556,9 +539,10 @@ class _DonutChart extends StatelessWidget {
 
 class _AssetTile extends StatelessWidget {
   final PortfolioAsset asset;
+  final Color color;
   final VoidCallback onTap;
 
-  const _AssetTile({required this.asset, required this.onTap});
+  const _AssetTile({required this.asset, required this.color, required this.onTap});
 
   String _formatType(String type) {
     switch (type.toLowerCase()) {
@@ -592,26 +576,7 @@ class _AssetTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEFF6FF),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Center(
-                child: Text(
-                  asset.assetSymbol.length > 3
-                      ? asset.assetSymbol.substring(0, 3)
-                      : asset.assetSymbol,
-                  style: GoogleFonts.inter(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF3B82F6),
-                  ),
-                ),
-              ),
-            ),
+            _AssetLogo(symbol: asset.assetSymbol, color: color),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -636,26 +601,39 @@ class _AssetTile extends StatelessWidget {
                 ],
               ),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            Row(
               children: [
-                Text(
-                  asset.currentPrice != null
-                      ? '\$${asset.currentPrice!.toStringAsFixed(2)}'
-                      : '—',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF0F172A),
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  '\$${currentVal.toStringAsFixed(2)}',
-                  style: GoogleFonts.inter(
-                    fontSize: 11,
-                    color: const Color(0xFF94A3B8),
-                  ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      asset.currentPrice != null
+                          ? '\$${asset.currentPrice!.toStringAsFixed(2)}'
+                          : '—',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '\$${currentVal.toStringAsFixed(2)}',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: const Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -699,6 +677,51 @@ class _AssetTile extends StatelessWidget {
   }
 }
 
+class _AssetLogo extends StatelessWidget {
+  final String symbol;
+  final Color color;
+
+  const _AssetLogo({required this.symbol, required this.color});
+
+  Widget _letterBox() {
+    return Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: color.withAlpha(25),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withAlpha(80)),
+      ),
+      child: Center(
+        child: Text(
+          symbol.length > 3 ? symbol.substring(0, 3) : symbol,
+          style: GoogleFonts.inter(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Image.network(
+        'https://financialmodelingprep.com/image-stock/$symbol.png',
+        width: 40,
+        height: 40,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => _letterBox(),
+        loadingBuilder: (_, child, progress) =>
+            progress == null ? child : _letterBox(),
+      ),
+    );
+  }
+}
+
 class _WatchlistTile extends StatelessWidget {
   final WatchlistItem item;
   const _WatchlistTile({required this.item});
@@ -724,27 +747,7 @@ class _WatchlistTile extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-            ),
-            child: Center(
-              child: Text(
-                item.assetSymbol.length > 3
-                    ? item.assetSymbol.substring(0, 3)
-                    : item.assetSymbol,
-                style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFF64748B),
-                ),
-              ),
-            ),
-          ),
+          _AssetLogo(symbol: item.assetSymbol, color: const Color(0xFF64748B)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
