@@ -39,9 +39,15 @@ class AssetResponse(BaseModel):
     purchase_price: float
     current_price: float | None
     current_value: float | None
+    daily_change: float | None
+    daily_change_pct: float | None
     added_at: str
 
 
 class PortfolioResponse(BaseModel):
     assets: list[AssetResponse]
     total_value: float
+    total_pnl: float
+    total_pnl_pct: float
+    total_daily_change: float
+    total_daily_change_pct: float
