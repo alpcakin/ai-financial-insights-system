@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../providers/alert_provider.dart';
 import '../providers/auth_provider.dart';
@@ -43,32 +44,50 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           ReportsScreen(),
         ],
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: [
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.newspaper),
-            label: 'News',
-          ),
-          BottomNavigationBarItem(
-            icon: Badge(
-              isLabelVisible: alertCount > 0 && _currentIndex != 2,
-              label: Text('$alertCount'),
-              child: const Icon(Icons.notifications),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
+        ),
+        child: NavigationBar(
+          selectedIndex: _currentIndex,
+          onDestinationSelected: (i) => setState(() => _currentIndex = i),
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          indicatorColor: const Color(0xFF0F172A),
+          elevation: 0,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          destinations: [
+            const NavigationDestination(
+              icon: Icon(Icons.home_outlined),
+              selectedIcon: Icon(Icons.home_rounded, color: Colors.white),
+              label: 'Home',
             ),
-            label: 'Alerts',
-          ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.bar_chart),
-            label: 'Reports',
-          ),
-        ],
+            const NavigationDestination(
+              icon: Icon(Icons.article_outlined),
+              selectedIcon: Icon(Icons.article_rounded, color: Colors.white),
+              label: 'News',
+            ),
+            NavigationDestination(
+              icon: Badge(
+                isLabelVisible: alertCount > 0 && _currentIndex != 2,
+                label: Text(
+                  '$alertCount',
+                  style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w600),
+                ),
+                child: const Icon(Icons.notifications_outlined),
+              ),
+              selectedIcon: const Icon(Icons.notifications_rounded, color: Colors.white),
+              label: 'Alerts',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.bar_chart_outlined),
+              selectedIcon: Icon(Icons.bar_chart_rounded, color: Colors.white),
+              label: 'Reports',
+            ),
+          ],
+        ),
       ),
     );
   }
