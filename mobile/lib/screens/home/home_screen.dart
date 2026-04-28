@@ -592,7 +592,7 @@ class _AssetTile extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${_formatType(asset.assetType)} · ${asset.quantity % 1 == 0 ? asset.quantity.toInt() : asset.quantity} shares',
+                    '${_formatType(asset.assetType)} · ${asset.quantity % 1 == 0 ? asset.quantity.toInt() : asset.quantity} ${asset.quantity == 1.0 ? 'share' : 'shares'}',
                     style: GoogleFonts.inter(
                       fontSize: 11,
                       color: const Color(0xFF94A3B8),

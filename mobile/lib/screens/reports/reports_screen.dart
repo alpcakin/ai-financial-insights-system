@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
+
 import '../../data/models/report_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/report_provider.dart';
@@ -36,34 +38,68 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final state = ref.watch(reportProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Weekly Reports')),
+      appBar: AppBar(
+        titleSpacing: 16,
+        title: Text(
+          'Reports',
+          style: GoogleFonts.inter(
+            fontSize: 22,
+            fontWeight: FontWeight.w800,
+            color: const Color(0xFF0F172A),
+          ),
+        ),
+      ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16),
-            child: SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: state.isGenerating ? null : _generate,
-                child: state.isGenerating
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: GestureDetector(
+              onTap: state.isGenerating ? null : _generate,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  color: state.isGenerating
+                      ? const Color(0xFFF1F5F9)
+                      : const Color(0xFF0F172A),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (state.isGenerating)
+                      const SizedBox(
+                        height: 18,
+                        width: 18,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: Color(0xFF94A3B8),
                         ),
                       )
-                    : const Text('Generate Weekly Report'),
+                    else
+                      const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      state.isGenerating ? 'Generating...' : 'Generate Weekly Report',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: state.isGenerating
+                            ? const Color(0xFF94A3B8)
+                            : Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
           if (state.error != null)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: Text(
                 state.error!,
-                style: const TextStyle(color: Colors.red),
+                style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFEF4444)),
               ),
             ),
           Expanded(
@@ -71,15 +107,32 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 ? const Center(child: CircularProgressIndicator())
                 : state.reports.isEmpty
                     ? Center(
-                        child: Text(
-                          'No reports yet',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodyMedium
-                              ?.copyWith(color: Colors.grey),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.bar_chart_rounded, size: 48, color: Color(0xFFCBD5E1)),
+                            const SizedBox(height: 12),
+                            Text(
+                              'No reports yet',
+                              style: GoogleFonts.inter(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF475569),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Generate your first weekly report above',
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                color: const Color(0xFF94A3B8),
+                              ),
+                            ),
+                          ],
                         ),
                       )
                     : ListView.builder(
+                        padding: const EdgeInsets.only(top: 8, bottom: 24),
                         itemCount: state.reports.length,
                         itemBuilder: (context, index) {
                           final report = state.reports[index];
@@ -114,21 +167,23 @@ class _ReportCard extends StatelessWidget {
     required this.onTap,
   });
 
-  Color _changeColor(double pct) =>
-      pct >= 0 ? Colors.green : Colors.red;
-
   @override
   Widget build(BuildContext context) {
     final content = report.content;
     final changePct = content?.totalChangePct ?? 0.0;
-    final changeColor = _changeColor(changePct);
-    final sign = changePct >= 0 ? '+' : '';
+    final isPositive = changePct >= 0;
+    final changeColor = isPositive ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+    final sign = isPositive ? '+' : '';
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -136,46 +191,75 @@ class _ReportCard extends StatelessWidget {
             children: [
               Row(
                 children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF475569)),
+                  ),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: Text(
-                      formatPeriod(report.periodStart, report.periodEnd),
-                      style: Theme.of(context).textTheme.titleSmall,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Weekly Report',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF94A3B8),
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                        Text(
+                          formatPeriod(report.periodStart, report.periodEnd),
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF0F172A),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   if (content != null)
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: changeColor.withAlpha(30),
+                        color: changeColor.withAlpha(15),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: changeColor),
+                        border: Border.all(color: changeColor.withAlpha(80)),
                       ),
                       child: Text(
                         '$sign${changePct.toStringAsFixed(2)}%',
-                        style: TextStyle(
-                          color: changeColor,
-                          fontWeight: FontWeight.bold,
+                        style: GoogleFonts.inter(
                           fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: changeColor,
                         ),
                       ),
                     ),
                   const SizedBox(width: 8),
                   Icon(
-                    isExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.grey,
+                    isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                    color: const Color(0xFF94A3B8),
+                    size: 20,
                   ),
                 ],
               ),
               if (isExpanded && content != null) ...[
-                const Divider(height: 24),
+                const SizedBox(height: 16),
+                Container(height: 1, color: const Color(0xFFE2E8F0)),
+                const SizedBox(height: 16),
                 _PortfolioSummary(content: content),
                 if (content.portfolioPerformance.isNotEmpty) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
                   _AssetPerformanceSection(assets: content.portfolioPerformance),
                 ],
                 if (content.topArticles.isNotEmpty) ...[
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
                   _TopArticlesSection(articles: content.topArticles),
                 ],
               ],
@@ -195,31 +279,53 @@ class _PortfolioSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pct = content.totalChangePct;
-    final color = pct >= 0 ? Colors.green : Colors.red;
-    final sign = pct >= 0 ? '+' : '';
+    final isPositive = pct >= 0;
+    final color = isPositive ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+    final sign = isPositive ? '+' : '';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Portfolio Summary',
-            style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 8),
+        Text(
+          'PORTFOLIO SUMMARY',
+          style: GoogleFonts.inter(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF94A3B8),
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 10),
         Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
               '$sign${pct.toStringAsFixed(2)}%',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
+              style: GoogleFonts.inter(
+                fontSize: 32,
+                fontWeight: FontWeight.w800,
                 color: color,
+                height: 1,
               ),
             ),
-            const SizedBox(width: 16),
-            Text(
-              '\$${content.totalValueNow.toStringAsFixed(2)}',
-              style: Theme.of(context).textTheme.titleMedium,
+            const SizedBox(width: 12),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                '\$${content.totalValueNow.toStringAsFixed(2)}',
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF475569),
+                ),
+              ),
             ),
           ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'vs \$${content.totalValue7dAgo.toStringAsFixed(2)} seven days ago',
+          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
         ),
       ],
     );
@@ -236,32 +342,61 @@ class _AssetPerformanceSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Asset Performance',
-            style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 8),
+        Text(
+          'ASSET PERFORMANCE',
+          style: GoogleFonts.inter(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF94A3B8),
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 10),
         ...assets.map((a) {
-          final color = a.changePct >= 0 ? Colors.green : Colors.red;
-          final sign = a.changePct >= 0 ? '+' : '';
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
+          final isPositive = a.changePct >= 0;
+          final color = isPositive ? const Color(0xFF10B981) : const Color(0xFFEF4444);
+          final sign = isPositive ? '+' : '';
+          return Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
             child: Row(
               children: [
-                SizedBox(
-                  width: 70,
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F172A),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
                   child: Text(
                     a.symbol,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
-                Expanded(
-                  child: Text(
-                    '$sign${a.changePct.toStringAsFixed(2)}%',
-                    style: TextStyle(color: color, fontWeight: FontWeight.w600),
+                const Spacer(),
+                Text(
+                  '$sign${a.changePct.toStringAsFixed(2)}%',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: color,
                   ),
                 ),
+                const SizedBox(width: 12),
                 Text(
                   '\$${a.valueNow.toStringAsFixed(2)}',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: const Color(0xFF64748B),
+                  ),
                 ),
               ],
             ),
@@ -278,10 +413,10 @@ class _TopArticlesSection extends StatelessWidget {
   const _TopArticlesSection({required this.articles});
 
   Color _severityColor(int? s) {
-    if (s == null) return Colors.blue;
-    if (s >= 9) return Colors.red;
-    if (s >= 7) return Colors.orange;
-    return Colors.blue;
+    if (s == null) return const Color(0xFF3B82F6);
+    if (s >= 9) return const Color(0xFFEF4444);
+    if (s >= 7) return const Color(0xFFF97316);
+    return const Color(0xFF3B82F6);
   }
 
   @override
@@ -289,73 +424,88 @@ class _TopArticlesSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Top Articles', style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 8),
+        Text(
+          'TOP ARTICLES',
+          style: GoogleFonts.inter(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF94A3B8),
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 10),
         ...articles.map((a) {
           final color = _severityColor(a.severity);
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      if (a.severity != null)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: color.withAlpha(30),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: color),
-                          ),
-                          child: Text(
-                            'S${a.severity}',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: color,
-                              fontWeight: FontWeight.w600,
-                            ),
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    if (a.severity != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: color.withAlpha(15),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: color.withAlpha(80)),
+                        ),
+                        child: Text(
+                          'S${a.severity}',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: color,
                           ),
                         ),
-                      if (a.source != null) ...[
-                        const SizedBox(width: 8),
-                        Text(
-                          a.source!,
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(color: Colors.grey),
+                      ),
+                    if (a.source != null) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        a.source!,
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: const Color(0xFF94A3B8),
                         ),
-                      ],
+                      ),
                     ],
+                  ],
+                ),
+                if (a.title != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    a.title!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF0F172A),
+                      height: 1.35,
+                    ),
                   ),
-                  if (a.title != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      a.title!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                  if (a.summary != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      a.summary!,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
                 ],
-              ),
+                if (a.summary != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    a.summary!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: const Color(0xFF64748B),
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ],
             ),
           );
         }),

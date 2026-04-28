@@ -38,7 +38,7 @@ def _is_trusted(url: str) -> bool:
 
 
 def fetch_articles(api_key: str, page_size: int) -> list[dict]:
-    url = "http://api.mediastack.com/v1/news"
+    url = "https://api.mediastack.com/v1/news"
     params = {
         "access_key": api_key,
         "languages": "en",
