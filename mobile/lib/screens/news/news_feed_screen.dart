@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../data/models/news_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/news_provider.dart';
+import '../topics/topics_screen.dart';
 
 class NewsFeedScreen extends ConsumerStatefulWidget {
   const NewsFeedScreen({super.key});
@@ -82,6 +83,15 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
             ],
           ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.interests_rounded, size: 20),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const TopicsScreen()),
+            ),
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: _refresh,

@@ -21,8 +21,12 @@ def distribute_article(
             user_ids.add(row["user_id"])
 
     if related_categories:
-        cat_result = db.table("categories").select("id").in_("name", related_categories).execute()
-        category_ids = [row["id"] for row in cat_result.data]
+        cat_result = db.table("categories").select("id, parent_id").in_("name", related_categories).execute()
+        category_ids = []
+        for row in cat_result.data:
+            category_ids.append(row["id"])
+            if row.get("parent_id"):
+                category_ids.append(row["parent_id"])
 
         if category_ids:
             topic_result = (
