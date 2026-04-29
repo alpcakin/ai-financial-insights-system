@@ -17,6 +17,12 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../core/constants.dart';
 import '../data/models/auth_models.dart';
 import '../data/repositories/auth_repository.dart';
+import 'alert_provider.dart';
+import 'news_provider.dart';
+import 'portfolio_provider.dart';
+import 'report_provider.dart';
+import 'topic_provider.dart';
+import 'watchlist_provider.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>((_) => AuthRepository());
 
@@ -64,9 +70,19 @@ class AuthState {
 class AuthNotifier extends StateNotifier<AuthState> {
   final AuthRepository _repository;
   final FlutterSecureStorage _storage;
+  final Ref _ref;
 
-  AuthNotifier(this._repository, this._storage) : super(const AuthState()) {
+  AuthNotifier(this._repository, this._storage, this._ref) : super(const AuthState()) {
     _restoreSession();
+  }
+
+  void _invalidateDataProviders() {
+    _ref.invalidate(portfolioProvider);
+    _ref.invalidate(watchlistProvider);
+    _ref.invalidate(newsProvider);
+    _ref.invalidate(alertProvider);
+    _ref.invalidate(reportProvider);
+    _ref.invalidate(topicProvider);
   }
 
   /// Check secure storage for a previously saved token.
@@ -86,26 +102,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Create a new account.  Returns true on success.
-  /// On failure the error message is stored in state.error.
+  /// Create a new account.  Returns true when the server accepted the request
+  /// and a verification email was sent.  Does not authenticate — the user must
+  /// verify their email first and then log in.
   Future<bool> register(String email, String password) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final token = await _repository.register(email: email, password: password);
-      await _persistSession(token);
-      state = state.copyWith(
-        isAuthenticated: true,
-        isLoading: false,
-        userId: token.userId,
-        email: token.email,
-        token: token.accessToken,
-      );
+      await _repository.register(email: email, password: password);
+      state = state.copyWith(isLoading: false);
       return true;
     } on AuthException catch (e) {
       state = state.copyWith(isLoading: false, error: e.message);
       return false;
     } catch (_) {
-      // TimeoutException and SocketException both land here.
       state = state.copyWith(isLoading: false, error: 'Network error. Please try again.');
       return false;
     }
@@ -116,6 +125,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final token = await _repository.login(email: email, password: password);
+      _invalidateDataProviders();
       await _persistSession(token);
       state = state.copyWith(
         isAuthenticated: true,
@@ -137,6 +147,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Clear all stored credentials and reset to the initial state.
   Future<void> logout() async {
     await _storage.deleteAll();
+    _invalidateDataProviders();
     state = const AuthState();
   }
 
@@ -154,5 +165,6 @@ final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(
     ref.read(authRepositoryProvider),
     ref.read(secureStorageProvider),
+    ref,
   );
 });

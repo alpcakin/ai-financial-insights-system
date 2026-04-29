@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # Firebase (optional — FCM push notifications)
     firebase_credentials_path: str = "firebase-service-account.json"
 
+    # Email verification via Resend — empty string disables sending
+    resend_api_key: str = ""
+    backend_url: str = "http://localhost:8000"
+
     # JWT settings — tokens are signed with HS256 and expire after 24 hours
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
