@@ -47,6 +47,22 @@ class AuthRepository {
     throw AuthException(body['detail'] as String? ?? 'Registration failed');
   }
 
+  /// Sends email to POST /auth/forgot-password.
+  /// Always succeeds on 200 — server never reveals whether the email exists.
+  Future<void> forgotPassword(String email) async {
+    final response = await http
+        .post(
+          Uri.parse('${AppConstants.baseUrl}/auth/forgot-password'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'email': email}),
+        )
+        .timeout(_timeout);
+
+    if (response.statusCode != 200) {
+      throw const AuthException('Failed to send reset email. Please try again.');
+    }
+  }
+
   /// Sends email and password to POST /auth/login.
   /// Returns an [AuthToken] on 200 OK, throws [AuthException] otherwise.
   Future<AuthToken> login({

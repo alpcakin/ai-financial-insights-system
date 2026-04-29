@@ -1,4 +1,6 @@
 import json
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -196,3 +198,88 @@ def test_get_reports_200(client, mock_db):
     mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value = count_mock
     r = client.get("/reports")
     assert r.status_code == 200
+
+
+# ── Forgot / Reset Password ───────────────────────────────────────────────────
+
+def test_forgot_password_200(auth_client, mock_db):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = auth_client.post("/auth/forgot-password", json={"email": "any@example.com"})
+    assert r.status_code == 200
+
+
+def test_reset_password_page_valid_token(auth_client, mock_db):
+    expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    mock_db.table.side_effect = lambda _: chain_mock([{
+        "id": "u1", "email": "user@example.com", "password_reset_expires_at": expires,
+    }])
+    r = auth_client.get("/auth/reset-password?token=valid-token")
+    assert r.status_code == 200
+
+
+def test_reset_password_page_expired_token(auth_client, mock_db):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = auth_client.get("/auth/reset-password?token=bad-token")
+    assert r.status_code == 400
+
+
+def test_reset_password_submit_success(auth_client, mock_db):
+    expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    user_row = {"id": "u1", "email": "u@ex.com", "password_reset_expires_at": expires}
+    mock_db.table.side_effect = [chain_mock([user_row]), chain_mock([])]
+    r = auth_client.post("/auth/reset-password", data={
+        "token": "valid-token",
+        "new_password": "NewPass1!",
+        "confirm_password": "NewPass1!",
+    })
+    assert r.status_code == 200
+
+
+def test_reset_password_submit_mismatch(auth_client, mock_db):
+    r = auth_client.post("/auth/reset-password", data={
+        "token": "any-token",
+        "new_password": "NewPass1!",
+        "confirm_password": "DiffPass1!",
+    })
+    assert r.status_code == 422
+
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+
+def test_get_me_200(client):
+    r = client.get("/users/me")
+    assert r.status_code == 200
+    assert r.json()["email"] == "test@example.com"
+
+
+def test_update_me_200(client, mock_db):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = client.patch("/users/me", json={"impact_alerts": False})
+    assert r.status_code == 200
+
+
+def test_change_password_router_200(client, mock_db):
+    mock_db.table.side_effect = [
+        chain_mock([{"password_hash": hash_password("Password1!")}]),
+        chain_mock([]),
+    ]
+    r = client.patch("/users/me/password", json={
+        "current_password": "Password1!",
+        "new_password": "NewPass1!",
+    })
+    assert r.status_code == 200
+
+
+def test_change_password_router_401(client, mock_db):
+    mock_db.table.side_effect = lambda _: chain_mock([{"password_hash": hash_password("Password1!")}])
+    r = client.patch("/users/me/password", json={
+        "current_password": "WrongPass1!",
+        "new_password": "NewPass1!",
+    })
+    assert r.status_code == 401
+
+
+def test_delete_me_204(client, mock_db):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = client.delete("/users/me")
+    assert r.status_code == 204

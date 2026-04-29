@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/auth_provider.dart';
+import 'forgot_password_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -119,7 +120,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       textAlign: TextAlign.center,
                     ),
                   ),
-                const SizedBox(height: 24),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () {
+                      ref.read(authProvider.notifier).clearError();
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const ForgotPasswordScreen()),
+                      );
+                    },
+                    child: Text(
+                      'Forgot password?',
+                      style: TextStyle(
+                          color: theme.colorScheme.primary, fontSize: 13),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 FilledButton(
                   onPressed: authState.isLoading ? null : _submit,
                   style: FilledButton.styleFrom(

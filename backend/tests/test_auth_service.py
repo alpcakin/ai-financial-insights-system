@@ -1,10 +1,18 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi import HTTPException
 from unittest.mock import patch
 
 from app.core.security import hash_password
 from app.models.user import LoginRequest, RegisterRequest
-from app.services.auth_service import login_user, register_user
+from app.services.auth_service import (
+    get_user_by_reset_token,
+    login_user,
+    register_user,
+    request_password_reset,
+    reset_password,
+)
 from tests.conftest import chain_mock, make_db
 
 
@@ -80,3 +88,51 @@ def test_login_unverified_email():
     with pytest.raises(HTTPException) as exc:
         login_user(db, req)
     assert exc.value.status_code == 403
+
+
+# ── Password Reset ────────────────────────────────────────────────────────────
+
+def test_request_password_reset_unknown_email():
+    db = make_db({"users": []})
+    request_password_reset(db, "unknown@example.com")  # silently returns, no exception
+
+
+def test_request_password_reset_known_email():
+    db = make_db({})
+    calls = [chain_mock([{"id": "u1"}]), chain_mock([])]
+    db.table.side_effect = lambda _: calls.pop(0)
+    request_password_reset(db, "known@example.com")  # update called, email skipped (no RESEND key)
+
+
+def test_get_user_by_reset_token_not_found():
+    db = make_db({"users": []})
+    assert get_user_by_reset_token(db, "bad-token") is None
+
+
+def test_get_user_by_reset_token_valid():
+    expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    user_row = {"id": "u1", "email": "u@ex.com", "password_reset_expires_at": expires}
+    db = make_db({"users": [user_row]})
+    result = get_user_by_reset_token(db, "good-token")
+    assert result is not None
+    assert result["id"] == "u1"
+
+
+def test_get_user_by_reset_token_expired():
+    expires = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    user_row = {"id": "u1", "email": "u@ex.com", "password_reset_expires_at": expires}
+    db = make_db({"users": [user_row]})
+    assert get_user_by_reset_token(db, "expired-token") is None
+
+
+def test_reset_password_success():
+    expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    user_row = {"id": "u1", "email": "u@ex.com", "password_reset_expires_at": expires}
+    db = make_db({"users": [user_row]})
+    reset_password(db, "valid-token", "NewPass1!")  # should not raise
+
+
+def test_reset_password_invalid_token():
+    db = make_db({"users": []})
+    with pytest.raises(ValueError, match="Invalid or expired"):
+        reset_password(db, "bad-token", "NewPass1!")

@@ -1,8 +1,14 @@
 import pytest
 from pydantic import ValidationError
 
-from app.models.user import LoginRequest, RegisterRequest
 from app.models.portfolio import AddAssetRequest, UpdateAssetRequest
+from app.models.user import (
+    ChangePasswordRequest,
+    ForgotPasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    UpdatePreferencesRequest,
+)
 
 
 def test_register_valid():
@@ -78,3 +84,35 @@ def test_update_asset_valid():
 def test_update_asset_zero_quantity():
     with pytest.raises(ValidationError):
         UpdateAssetRequest(quantity=0, purchase_price=200.0)
+
+
+def test_change_password_valid():
+    r = ChangePasswordRequest(current_password="anything", new_password="Password1!")
+    assert r.new_password == "Password1!"
+
+
+def test_change_password_weak_new():
+    with pytest.raises(ValidationError):
+        ChangePasswordRequest(current_password="anything", new_password="weak")
+
+
+def test_update_preferences_all_none():
+    r = UpdatePreferencesRequest()
+    assert r.impact_alerts is None
+    assert r.volatility_alerts is None
+
+
+def test_update_preferences_with_values():
+    r = UpdatePreferencesRequest(impact_alerts=False, volatility_alerts=True)
+    assert r.impact_alerts is False
+    assert r.volatility_alerts is True
+
+
+def test_forgot_password_valid():
+    r = ForgotPasswordRequest(email="user@example.com")
+    assert r.email == "user@example.com"
+
+
+def test_forgot_password_invalid_email():
+    with pytest.raises(ValidationError):
+        ForgotPasswordRequest(email="not-an-email")

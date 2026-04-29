@@ -1,5 +1,6 @@
 import logging
 import secrets
+from datetime import datetime, timedelta, timezone
 
 import resend
 from fastapi import HTTPException, status
@@ -30,6 +31,27 @@ def _send_verification_email(to_email: str, token: str) -> None:
         })
     except Exception as exc:
         logger.warning("Verification email failed for %s: %s", to_email, exc)
+
+
+def _send_password_reset_email(to_email: str, token: str) -> None:
+    if not settings.resend_api_key:
+        logger.warning("RESEND_API_KEY not set — skipping reset email for %s", to_email)
+        return
+    link = f"{settings.backend_url}/auth/reset-password?token={token}"
+    resend.api_key = settings.resend_api_key
+    try:
+        resend.Emails.send({
+            "from": "AI Financial Insights <onboarding@resend.dev>",
+            "to": [to_email],
+            "subject": "Reset your password",
+            "html": (
+                f"<p>Click the link below to reset your password. The link expires in 1 hour.</p>"
+                f'<p><a href="{link}">{link}</a></p>'
+                f"<p>If you did not request this, you can safely ignore this email.</p>"
+            ),
+        })
+    except Exception as exc:
+        logger.warning("Password reset email failed for %s: %s", to_email, exc)
 
 
 def register_user(db: Client, request: RegisterRequest) -> RegisterResponse:
@@ -111,3 +133,55 @@ def login_user(db: Client, request: LoginRequest) -> TokenResponse:
 
     token = create_access_token(user["id"])
     return TokenResponse(access_token=token, user_id=user["id"], email=user["email"])
+
+
+def request_password_reset(db: Client, email: str) -> None:
+    result = db.table("users").select("id").eq("email", email).execute()
+    if not result.data:
+        # Silently return — never reveal whether an email exists
+        return
+
+    reset_token = secrets.token_urlsafe(32)
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+
+    db.table("users").update({
+        "password_reset_token": reset_token,
+        "password_reset_expires_at": expires_at,
+    }).eq("id", result.data[0]["id"]).execute()
+
+    _send_password_reset_email(email, reset_token)
+
+
+def get_user_by_reset_token(db: Client, token: str) -> dict | None:
+    """Return the user row if the token is valid and unexpired, else None."""
+    result = (
+        db.table("users")
+        .select("id, email, password_reset_expires_at")
+        .eq("password_reset_token", token)
+        .execute()
+    )
+    if not result.data:
+        return None
+
+    user = result.data[0]
+    expires_str = user.get("password_reset_expires_at")
+    if not expires_str:
+        return None
+
+    expires_at = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) > expires_at:
+        return None
+
+    return user
+
+
+def reset_password(db: Client, token: str, new_password: str) -> None:
+    user = get_user_by_reset_token(db, token)
+    if not user:
+        raise ValueError("Invalid or expired reset link")
+
+    db.table("users").update({
+        "password_hash": hash_password(new_password),
+        "password_reset_token": None,
+        "password_reset_expires_at": None,
+    }).eq("id", user["id"]).execute()

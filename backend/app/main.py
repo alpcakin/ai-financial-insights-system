@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.routers import auth, portfolio, watchlist
+from app.routers import auth, portfolio, watchlist, users
 from app.routers import news, feed, alerts, reports, topics
 
 logger = logging.getLogger(__name__)
@@ -61,6 +61,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(users.router)
 app.include_router(portfolio.router)
 app.include_router(watchlist.router)
 app.include_router(news.router)
