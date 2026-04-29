@@ -23,7 +23,7 @@ def test_register_success():
     req = RegisterRequest(email="new@example.com", password="Password1!")
     result = register_user(db, req)
     assert result.email == "new@example.com"
-    assert result.access_token
+    assert result.message
 
 
 def test_register_duplicate():
@@ -42,9 +42,9 @@ def test_register_insert_failure():
     assert exc.value.status_code == 500
 
 
-def _db_login(found=True, password="Password1!"):
+def _db_login(found=True, password="Password1!", verified=True):
     if found:
-        data = [{"id": "u1", "email": "user@example.com", "password_hash": hash_password(password)}]
+        data = [{"id": "u1", "email": "user@example.com", "password_hash": hash_password(password), "email_verified": verified}]
     else:
         data = []
     return make_db({"users": data})
@@ -72,3 +72,11 @@ def test_login_wrong_password():
     with pytest.raises(HTTPException) as exc:
         login_user(db, req)
     assert exc.value.status_code == 401
+
+
+def test_login_unverified_email():
+    db = _db_login(found=True, password="Password1!", verified=False)
+    req = LoginRequest(email="user@example.com", password="Password1!")
+    with pytest.raises(HTTPException) as exc:
+        login_user(db, req)
+    assert exc.value.status_code == 403

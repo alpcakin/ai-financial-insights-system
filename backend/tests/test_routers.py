@@ -64,7 +64,7 @@ def test_register_409(auth_client, mock_db):
 
 def test_login_200(auth_client, mock_db):
     mock_db.table.side_effect = [
-        chain_mock([{"id": "u1", "email": "user@example.com", "password_hash": hash_password("Password1!")}])
+        chain_mock([{"id": "u1", "email": "user@example.com", "password_hash": hash_password("Password1!"), "email_verified": True}])
     ]
     r = auth_client.post("/auth/login", json={"email": "user@example.com", "password": "Password1!"})
     assert r.status_code == 200

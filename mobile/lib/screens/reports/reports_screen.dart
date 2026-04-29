@@ -21,6 +21,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     await ref.read(reportProvider.notifier).generate(token);
   }
 
+  Future<void> _refresh() async {
+    final token = ref.read(authProvider).token ?? '';
+    await ref.read(reportProvider.notifier).load(token);
+  }
+
   static const _months = [
     '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
@@ -105,48 +110,58 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           Expanded(
             child: state.isLoading && state.reports.isEmpty
                 ? const Center(child: CircularProgressIndicator())
-                : state.reports.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.bar_chart_rounded, size: 48, color: Color(0xFFCBD5E1)),
-                            const SizedBox(height: 12),
-                            Text(
-                              'No reports yet',
-                              style: GoogleFonts.inter(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: const Color(0xFF475569),
+                : RefreshIndicator(
+                    onRefresh: _refresh,
+                    child: state.reports.isEmpty
+                        ? ListView(
+                            children: [
+                              Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(top: 64),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.bar_chart_rounded, size: 48, color: Color(0xFFCBD5E1)),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        'No reports yet',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                          color: const Color(0xFF475569),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Generate your first weekly report above',
+                                        style: GoogleFonts.inter(
+                                          fontSize: 13,
+                                          color: const Color(0xFF94A3B8),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Generate your first weekly report above',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                color: const Color(0xFF94A3B8),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.only(top: 8, bottom: 24),
-                        itemCount: state.reports.length,
-                        itemBuilder: (context, index) {
-                          final report = state.reports[index];
-                          final isExpanded = _expandedId == report.id;
-                          return _ReportCard(
-                            report: report,
-                            isExpanded: isExpanded,
-                            formatPeriod: _formatPeriod,
-                            onTap: () => setState(() {
-                              _expandedId = isExpanded ? null : report.id;
-                            }),
-                          );
-                        },
-                      ),
+                            ],
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.only(top: 8, bottom: 24),
+                            itemCount: state.reports.length,
+                            itemBuilder: (context, index) {
+                              final report = state.reports[index];
+                              final isExpanded = _expandedId == report.id;
+                              return _ReportCard(
+                                report: report,
+                                isExpanded: isExpanded,
+                                formatPeriod: _formatPeriod,
+                                onTap: () => setState(() {
+                                  _expandedId = isExpanded ? null : report.id;
+                                }),
+                              );
+                            },
+                          ),
+                  ),
           ),
         ],
       ),

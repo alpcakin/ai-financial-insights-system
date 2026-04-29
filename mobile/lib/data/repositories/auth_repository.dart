@@ -25,8 +25,8 @@ class AuthRepository {
   static const _timeout = Duration(seconds: 15);
 
   /// Sends email and password to POST /auth/register.
-  /// Returns an [AuthToken] on 201 Created, throws [AuthException] otherwise.
-  Future<AuthToken> register({
+  /// Returns a [RegisterResult] on 201 Created — no token yet, email verification required.
+  Future<RegisterResult> register({
     required String email,
     required String password,
   }) async {
@@ -41,7 +41,7 @@ class AuthRepository {
     final body = jsonDecode(response.body) as Map<String, dynamic>;
 
     if (response.statusCode == 201) {
-      return AuthToken.fromJson(body);
+      return RegisterResult.fromJson(body);
     }
 
     throw AuthException(body['detail'] as String? ?? 'Registration failed');

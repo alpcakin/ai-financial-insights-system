@@ -42,10 +42,16 @@ class LoginRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    """Returned on successful login or registration.  The mobile app
-    stores access_token in secure storage and sends it as a Bearer
-    header on all subsequent requests."""
+    """Returned on successful login.  The mobile app stores access_token
+    in secure storage and sends it as a Bearer header on all subsequent requests."""
     access_token: str
     token_type: str = "bearer"
     user_id: str
+    email: str
+
+
+class RegisterResponse(BaseModel):
+    """Returned on successful registration.  No token is issued until
+    the user verifies their email address."""
+    message: str
     email: str

@@ -25,3 +25,15 @@ class AuthToken {
         email: json['email'] as String,
       );
 }
+
+class RegisterResult {
+  final String message;
+  final String email;
+
+  const RegisterResult({required this.message, required this.email});
+
+  factory RegisterResult.fromJson(Map<String, dynamic> json) => RegisterResult(
+        message: json['message'] as String,
+        email: json['email'] as String,
+      );
+}

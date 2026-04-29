@@ -710,7 +710,7 @@ class _AssetLogo extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: Image.network(
-        'https://financialmodelingprep.com/image-stock/$symbol.png',
+        'https://assets.parqet.com/logos/symbol/$symbol?format=png',
         width: 40,
         height: 40,
         fit: BoxFit.contain,

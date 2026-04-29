@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/auth_provider.dart';
+import 'email_pending_screen.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -39,12 +40,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    final email = _emailController.text.trim();
     final success = await ref.read(authProvider.notifier).register(
-          _emailController.text.trim(),
+          email,
           _passwordController.text,
         );
 
-    if (!success && mounted) {
+    if (!mounted) return;
+
+    if (success) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => EmailPendingScreen(email: email)),
+      );
+    } else {
       final error = ref.read(authProvider).error;
       if (error != null && error.contains('already exists')) {
         ScaffoldMessenger.of(context).showSnackBar(

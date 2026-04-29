@@ -112,7 +112,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
-                      authState.error!,
+                      authState.error!.contains('verify your email')
+                          ? 'Please verify your email first. Check your inbox for the verification link.'
+                          : authState.error!,
                       style: TextStyle(color: theme.colorScheme.error, fontSize: 13),
                       textAlign: TextAlign.center,
                     ),
