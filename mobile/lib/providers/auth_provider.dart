@@ -22,6 +22,7 @@ import 'news_provider.dart';
 import 'portfolio_provider.dart';
 import 'report_provider.dart';
 import 'topic_provider.dart';
+import 'user_provider.dart';
 import 'watchlist_provider.dart';
 
 final authRepositoryProvider = Provider<AuthRepository>((_) => AuthRepository());
@@ -83,6 +84,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
     _ref.invalidate(alertProvider);
     _ref.invalidate(reportProvider);
     _ref.invalidate(topicProvider);
+    _ref.invalidate(userProvider);
+  }
+
+  void clearError() {
+    state = state.copyWith(error: null);
   }
 
   /// Check secure storage for a previously saved token.

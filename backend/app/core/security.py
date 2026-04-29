@@ -6,12 +6,28 @@ plaintext is never saved.  JWT tokens carry the user ID in the "sub" claim
 and expire after the number of hours defined in settings.
 """
 
+import re
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from jose import JWTError, jwt
 
 from app.core.config import settings
+
+
+def validate_password_strength(password: str) -> None:
+    """Raise ValueError if the password doesn't meet complexity requirements.
+    Shared by registration and password-reset flows to avoid duplication."""
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters")
+    if not re.search(r"[A-Z]", password):
+        raise ValueError("Password must contain at least one uppercase letter")
+    if not re.search(r"[a-z]", password):
+        raise ValueError("Password must contain at least one lowercase letter")
+    if not re.search(r"\d", password):
+        raise ValueError("Password must contain at least one digit")
+    if not re.search(r"[^A-Za-z0-9]", password):
+        raise ValueError("Password must contain at least one special character")
 
 
 def hash_password(password: str) -> str:

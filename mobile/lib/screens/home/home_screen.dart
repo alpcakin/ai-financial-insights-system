@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../data/models/alert_models.dart';
 import '../../data/models/asset_catalog.dart';
 import '../../data/models/portfolio_models.dart';
 import '../../data/models/watchlist_models.dart';
+import '../../providers/alert_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/portfolio_provider.dart';
 import '../../providers/watchlist_provider.dart';
+import '../alerts/alerts_screen.dart';
 import 'asset_browser_modal.dart';
 
 const _kChartColors = [
@@ -175,10 +178,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 18),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout_rounded, size: 20),
-            onPressed: () => ref.read(authProvider.notifier).logout(),
-          ),
+          _AlertsBellButton(onSeeAll: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AlertsScreen()),
+            );
+          }),
         ],
       ),
       body: RefreshIndicator(
@@ -1025,6 +1030,193 @@ class _EditAssetSheetState extends ConsumerState<_EditAssetSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Alerts bell icon ─────────────────────────────────────────────────────────
+
+class _AlertsBellButton extends ConsumerWidget {
+  final VoidCallback onSeeAll;
+
+  const _AlertsBellButton({required this.onSeeAll});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final alertCount = ref.watch(alertProvider).alerts.length;
+
+    return IconButton(
+      icon: Badge(
+        isLabelVisible: alertCount > 0,
+        label: Text(
+          '$alertCount',
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+        ),
+        child: const Icon(Icons.notifications_outlined, size: 22),
+      ),
+      onPressed: () => showDialog<void>(
+        context: context,
+        barrierColor: Colors.transparent,
+        builder: (_) => _AlertsPopup(onSeeAll: onSeeAll),
+      ),
+    );
+  }
+}
+
+class _AlertsPopup extends ConsumerWidget {
+  final VoidCallback onSeeAll;
+
+  const _AlertsPopup({required this.onSeeAll});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final alerts = ref.watch(alertProvider).alerts;
+    final preview = alerts.take(5).toList();
+
+    return Align(
+      alignment: Alignment.topRight,
+      child: Padding(
+        padding: EdgeInsets.only(
+          top: kToolbarHeight + MediaQuery.of(context).padding.top + 4,
+          right: 8,
+        ),
+        child: Material(
+          elevation: 12,
+          borderRadius: BorderRadius.circular(16),
+          color: Colors.white,
+          child: SizedBox(
+            width: 320,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                  child: Text(
+                    'Notifications',
+                    style: GoogleFonts.inter(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: const Color(0xFF0F172A),
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                if (preview.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 32),
+                    child: Center(
+                      child: Text(
+                        'No alerts yet',
+                        style: GoogleFonts.inter(
+                          fontSize: 13,
+                          color: const Color(0xFF94A3B8),
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  ...preview.map((a) => _CompactAlertRow(alert: a)),
+                if (alerts.isNotEmpty) ...[
+                  const Divider(height: 1),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      onSeeAll();
+                    },
+                    child: Text(
+                      'See all alerts',
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF3B82F6),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactAlertRow extends StatelessWidget {
+  final AlertItem alert;
+
+  const _CompactAlertRow({required this.alert});
+
+  Color _severityColor() {
+    final s = alert.severity ?? 5;
+    if (s >= 9) return const Color(0xFFEF4444);
+    if (s >= 7) return const Color(0xFFF97316);
+    return const Color(0xFF3B82F6);
+  }
+
+  String _timeAgo() {
+    final dt = DateTime.tryParse(alert.createdAt);
+    if (dt == null) return '';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inDays > 0) return '${diff.inDays}d ago';
+    if (diff.inHours > 0) return '${diff.inHours}h ago';
+    return '${diff.inMinutes}m ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _severityColor();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: color.withAlpha(15),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: color.withAlpha(60)),
+            ),
+            child: Icon(
+              alert.alertType == 'impact'
+                  ? Icons.article_rounded
+                  : Icons.trending_up_rounded,
+              color: color,
+              size: 16,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (alert.message != null)
+                  Text(
+                    alert.message!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: const Color(0xFF334155),
+                      height: 1.35,
+                    ),
+                  ),
+                const SizedBox(height: 2),
+                Text(
+                  _timeAgo(),
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: const Color(0xFF94A3B8),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
