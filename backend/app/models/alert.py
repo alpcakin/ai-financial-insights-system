@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from typing import Annotated
+
+from pydantic import BaseModel, StringConstraints
 
 
 class AlertResponse(BaseModel):
@@ -21,4 +23,4 @@ class AlertsResponse(BaseModel):
 
 
 class RegisterTokenRequest(BaseModel):
-    fcm_token: str
+    fcm_token: Annotated[str, StringConstraints(min_length=1, max_length=4096)]

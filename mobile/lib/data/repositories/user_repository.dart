@@ -13,6 +13,14 @@ class UserRepository {
         'Authorization': 'Bearer $token',
       };
 
+  Map<String, dynamic> _decode(http.Response r) {
+    try {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    } on FormatException {
+      throw const UserException('Server error. Please try again.');
+    }
+  }
+
   Future<UserProfile> getMe(String token) async {
     final response = await http
         .get(
@@ -22,7 +30,7 @@ class UserRepository {
         .timeout(_timeout);
 
     if (response.statusCode == 200) {
-      return UserProfile.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+      return UserProfile.fromJson(_decode(response));
     }
     throw const UserException('Failed to load profile');
   }
@@ -45,7 +53,7 @@ class UserRepository {
         .timeout(_timeout);
 
     if (response.statusCode == 200) {
-      return UserProfile.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+      return UserProfile.fromJson(_decode(response));
     }
     throw const UserException('Failed to update preferences');
   }
@@ -68,8 +76,8 @@ class UserRepository {
 
     if (response.statusCode == 200) return;
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    throw UserException(body['detail'] as String? ?? 'Failed to change password');
+    final decoded = _decode(response);
+    throw UserException(decoded['detail'] as String? ?? 'Failed to change password');
   }
 
   Future<void> deleteAccount(String token) async {

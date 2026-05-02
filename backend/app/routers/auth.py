@@ -1,3 +1,5 @@
+import html as html_lib
+
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse
 from supabase import Client
@@ -37,7 +39,7 @@ def _html_page(body: str) -> str:
 
 def _reset_form_html(token: str, error: str = "") -> str:
     error_block = (
-        f'<p style="color:#ef4444;font-size:13px;margin:0 0 16px;">{error}</p>'
+        f'<p style="color:#ef4444;font-size:13px;margin:0 0 16px;">{html_lib.escape(error)}</p>'
         if error else ""
     )
     return _html_page(f"""
@@ -47,7 +49,7 @@ def _reset_form_html(token: str, error: str = "") -> str:
         </p>
         {error_block}
         <form method="POST" action="/auth/reset-password">
-            <input type="hidden" name="token" value="{token}">
+            <input type="hidden" name="token" value="{html_lib.escape(token)}">
             <div style="margin-bottom:16px;">
                 <label style="display:block;font-size:13px;color:#475569;margin-bottom:6px;">
                     New password

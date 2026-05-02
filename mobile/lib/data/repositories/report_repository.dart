@@ -18,6 +18,14 @@ class ReportRepository {
         'Authorization': 'Bearer $token',
       };
 
+  Map<String, dynamic> _decode(http.Response r) {
+    try {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    } on FormatException {
+      throw const ReportException('Server error. Please try again.');
+    }
+  }
+
   Future<ReportItem> generateReport(String token) async {
     final response = await http
         .post(
@@ -26,12 +34,12 @@ class ReportRepository {
         )
         .timeout(_timeout);
 
+    final body = _decode(response);
+
     if (response.statusCode == 200) {
-      return ReportItem.fromJson(
-          jsonDecode(response.body) as Map<String, dynamic>);
+      return ReportItem.fromJson(body);
     }
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
     throw ReportException(
         body['detail'] as String? ?? 'Failed to generate report');
   }
@@ -49,12 +57,12 @@ class ReportRepository {
         .get(uri, headers: _headers(token))
         .timeout(_timeout);
 
+    final body = _decode(response);
+
     if (response.statusCode == 200) {
-      return ReportsResponse.fromJson(
-          jsonDecode(response.body) as Map<String, dynamic>);
+      return ReportsResponse.fromJson(body);
     }
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
     throw ReportException(
         body['detail'] as String? ?? 'Failed to load reports');
   }

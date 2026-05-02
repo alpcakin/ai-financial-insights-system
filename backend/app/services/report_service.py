@@ -1,5 +1,6 @@
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 
 import yfinance as yf
@@ -34,20 +35,15 @@ def generate_weekly_report(db: Client, user_id: str) -> dict:
 
     feed_result = (
         db.table("user_news_feed")
-        .select("*, articles(*)")
+        .select("articles(id, title, source, severity, sentiment_label, summary, published_at)")
         .eq("user_id", user_id)
         .gte("created_at", str(period_start))
+        .limit(100)
         .execute()
     )
 
-    articles_raw = []
-    for row in feed_result.data or []:
-        article = row.get("articles")
-        if article:
-            articles_raw.append(article)
-
+    articles_raw = [row["articles"] for row in (feed_result.data or []) if row.get("articles")]
     articles_raw.sort(key=lambda a: a.get("severity") or 0, reverse=True)
-    top_5 = articles_raw[:5]
 
     top_articles = [
         {
@@ -59,7 +55,7 @@ def generate_weekly_report(db: Client, user_id: str) -> dict:
             "summary": a.get("summary"),
             "published_at": str(a.get("published_at")) if a.get("published_at") else None,
         }
-        for a in top_5
+        for a in articles_raw[:5]
     ]
 
     portfolio_result = (
@@ -69,45 +65,45 @@ def generate_weekly_report(db: Client, user_id: str) -> dict:
         .execute()
     )
 
-    portfolio_performance = []
-    total_value_now = 0.0
-    total_value_7d_ago = 0.0
-
-    for asset in portfolio_result.data or []:
+    def _fetch_asset_history(asset: dict) -> dict | None:
         symbol = asset["asset_symbol"]
         quantity = float(asset["quantity"])
-
         try:
             hist = yf.Ticker(symbol).history(period="8d")
             if len(hist) < 2:
-                logger.warning("Insufficient history for %s, skipping", symbol)
-                continue
-
+                return None
             price_now = float(hist["Close"].iloc[-1])
             price_7d_ago = float(hist["Close"].iloc[0])
-
             if price_7d_ago == 0:
-                continue
-
+                return None
             change_pct = (price_now - price_7d_ago) / price_7d_ago * 100
-            value_now = price_now * quantity
-            value_7d_ago = price_7d_ago * quantity
-
-            portfolio_performance.append({
+            return {
                 "symbol": symbol,
                 "quantity": quantity,
                 "price_now": round(price_now, 4),
                 "price_7d_ago": round(price_7d_ago, 4),
                 "change_pct": round(change_pct, 2),
-                "value_now": round(value_now, 4),
-            })
-
-            total_value_now += value_now
-            total_value_7d_ago += value_7d_ago
-
+                "value_now": round(price_now * quantity, 4),
+                "value_7d_ago": price_7d_ago * quantity,
+            }
         except Exception:
             logger.warning("yfinance error for %s, skipping", symbol)
-            continue
+            return None
+
+    assets = portfolio_result.data or []
+    portfolio_performance = []
+    total_value_now = 0.0
+    total_value_7d_ago = 0.0
+
+    if assets:
+        with ThreadPoolExecutor(max_workers=min(len(assets), 10)) as executor:
+            futures = {executor.submit(_fetch_asset_history, a): a for a in assets}
+            for future in as_completed(futures):
+                entry = future.result()
+                if entry:
+                    total_value_now += entry["value_now"]
+                    total_value_7d_ago += entry.pop("value_7d_ago")
+                    portfolio_performance.append(entry)
 
     if total_value_7d_ago == 0:
         total_change_pct = 0.0
@@ -133,6 +129,10 @@ def generate_weekly_report(db: Client, user_id: str) -> dict:
         })
         .execute()
     )
+
+    if not insert_result.data:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail="Failed to save report")
 
     row = insert_result.data[0]
     return {

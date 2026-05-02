@@ -159,17 +159,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final portfolioState = ref.watch(portfolioProvider);
     final watchlistState = ref.watch(watchlistProvider);
 
-    ref.listen(portfolioProvider, (_, next) {
-      if (next.error != null && !next.isLoading) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(next.error!)));
-      }
-    });
+    ref.listen(
+      portfolioProvider.select((s) => s.isLoading ? null : s.error),
+      (_, error) {
+        if (error != null) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+        }
+      },
+    );
 
-    ref.listen(watchlistProvider, (_, next) {
-      if (next.error != null && !next.isLoading) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(next.error!)));
-      }
-    });
+    ref.listen(
+      watchlistProvider.select((s) => s.isLoading ? null : s.error),
+      (_, error) {
+        if (error != null) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+        }
+      },
+    );
 
     return Scaffold(
       appBar: AppBar(

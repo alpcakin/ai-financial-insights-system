@@ -60,17 +60,6 @@ def _impact_db(existing_alerts=False, portfolio_symbols=None):
 
 def test_impact_alert_created_severity_7():
     db = MagicMock()
-    calls = [
-        chain_mock([]),
-        chain_mock([{"id": "alert-1"}]),
-        chain_mock([{"id": "u1", "email": "x@x.com", "notification_preferences": {}}]),
-    ]
-    db.table.side_effect = lambda _: calls.pop(0) if calls else chain_mock([])
-
-    asset_impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 7, "reason": "bad news"}]
-    user_portfolio = {"u1": ["AAPL"]}
-
-    db2 = MagicMock()
     call_list = []
 
     def t(name):
@@ -82,20 +71,21 @@ def test_impact_alert_created_severity_7():
             call_list.append(2)
             m.execute.return_value.data = [{"id": "a1"}]
         elif name == "portfolio":
-            m.execute.return_value.data = [{"asset_symbol": "AAPL"}]
+            m.execute.return_value.data = [{"user_id": "u1", "asset_symbol": "AAPL"}]
         elif name == "users":
             m.execute.return_value.data = [{"notification_preferences": {}}]
         return m
 
-    db2.table.side_effect = t
-    count = generate_impact_alerts(db2, "article-1", {"u1"}, asset_impacts)
+    db.table.side_effect = t
+    asset_impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 7, "reason": "bad news"}]
+    count = generate_impact_alerts(db, "article-1", {"u1"}, asset_impacts)
     assert count >= 0
 
 
 def test_impact_alert_skipped_severity_6():
     db = MagicMock()
     db.table.side_effect = lambda name: chain_mock(
-        [{"asset_symbol": "AAPL"}] if name == "portfolio" else []
+        [{"user_id": "u1", "asset_symbol": "AAPL"}] if name == "portfolio" else []
     )
     asset_impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 6, "reason": "minor"}]
     count = generate_impact_alerts(db, "article-1", {"u1"}, asset_impacts)
@@ -107,10 +97,10 @@ def test_impact_alert_skips_duplicate():
 
     def t(name):
         m = chain_mock([])
-        if name == "portfolio":
-            m.execute.return_value.data = [{"asset_symbol": "AAPL"}]
-        elif name == "alerts":
-            m.execute.return_value.data = [{"id": "existing"}]
+        if name == "alerts":
+            m.execute.return_value.data = [{"user_id": "u1"}]
+        elif name == "portfolio":
+            m.execute.return_value.data = [{"user_id": "u1", "asset_symbol": "AAPL"}]
         return m
 
     db.table.side_effect = t
@@ -161,7 +151,7 @@ def test_volatility_alert_skips_existing(mock_ticker):
         if name == "portfolio":
             m.execute.return_value.data = [{"user_id": "u1", "asset_symbol": "AAPL"}]
         elif name == "alerts":
-            m.execute.return_value.data = [{"id": "today-alert"}]
+            m.execute.return_value.data = [{"user_id": "u1"}]
         return m
 
     db.table.side_effect = t

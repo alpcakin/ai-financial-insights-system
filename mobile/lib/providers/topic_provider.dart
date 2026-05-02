@@ -60,9 +60,10 @@ class TopicNotifier extends StateNotifier<TopicState> {
     final wasFollowed = category.followed;
     final newInFlight = {...state.inFlight, category.id};
 
-    // Optimistic update
-    category.followed = !wasFollowed;
-    state = state.copyWith(groups: List.of(state.groups), inFlight: newInFlight);
+    state = state.copyWith(
+      groups: _updateCategoryInGroups(state.groups, category.id, !wasFollowed),
+      inFlight: newInFlight,
+    );
 
     try {
       if (wasFollowed) {
@@ -71,16 +72,30 @@ class TopicNotifier extends StateNotifier<TopicState> {
         await _repo.followTopic(token, category.id);
       }
     } catch (_) {
-      // Revert
-      category.followed = wasFollowed;
       state = state.copyWith(
-        groups: List.of(state.groups),
+        groups: _updateCategoryInGroups(state.groups, category.id, wasFollowed),
         error: wasFollowed ? 'Failed to unfollow' : 'Failed to follow',
       );
     } finally {
       final updated = {...state.inFlight}..remove(category.id);
       state = state.copyWith(inFlight: updated);
     }
+  }
+
+  List<TopicGroup> _updateCategoryInGroups(
+    List<TopicGroup> groups,
+    String id,
+    bool followed,
+  ) {
+    return groups.map((g) {
+      if (g.parent.id == id) {
+        return TopicGroup(parent: g.parent.copyWith(followed: followed), children: g.children);
+      }
+      final updatedChildren = g.children
+          .map((c) => c.id == id ? c.copyWith(followed: followed) : c)
+          .toList();
+      return TopicGroup(parent: g.parent, children: updatedChildren);
+    }).toList();
   }
 
   List<TopicGroup> _group(List<TopicCategory> cats) {

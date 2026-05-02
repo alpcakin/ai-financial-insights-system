@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 
 import yfinance as yf
@@ -19,34 +20,40 @@ def generate_impact_alerts(
         return 0
 
     impact_map = {a["symbol"]: a for a in asset_impacts}
-    created = 0
 
-    for user_id in user_ids:
-        existing = (
+    already_alerted = {
+        row["user_id"]
+        for row in (
             db.table("alerts")
-            .select("id")
-            .eq("user_id", user_id)
+            .select("user_id")
+            .in_("user_id", list(user_ids))
             .eq("article_id", article_id)
             .eq("alert_type", "impact")
             .execute()
-        )
-        if existing.data:
+        ).data
+    }
+
+    portfolio_rows = (
+        db.table("portfolio")
+        .select("user_id, asset_symbol")
+        .in_("user_id", list(user_ids))
+        .execute()
+    ).data
+    user_portfolio_map: dict[str, set[str]] = {}
+    for row in portfolio_rows:
+        user_portfolio_map.setdefault(row["user_id"], set()).add(row["asset_symbol"])
+
+    created = 0
+    for user_id in user_ids:
+        if user_id in already_alerted:
             continue
 
-        portfolio_result = (
-            db.table("portfolio")
-            .select("asset_symbol")
-            .eq("user_id", user_id)
-            .execute()
-        )
-        user_assets = {row["asset_symbol"] for row in portfolio_result.data}
-
+        user_assets = user_portfolio_map.get(user_id, set())
         matched = [
             impact_map[sym]
             for sym in user_assets
             if sym in impact_map and impact_map[sym].get("severity", 0) >= 7
         ]
-
         if not matched:
             continue
 
@@ -65,11 +72,7 @@ def generate_impact_alerts(
 
             if insert.data:
                 alert_id = insert.data[0]["id"]
-                notify_alert(
-                    db, user_id, alert_id,
-                    f"High Impact: {top['symbol']}",
-                    message,
-                )
+                notify_alert(db, user_id, alert_id, f"High Impact: {top['symbol']}", message)
                 created += 1
         except Exception as e:
             logger.error("Failed to create impact alert for user %s: %s", user_id, e)
@@ -89,6 +92,21 @@ def _severity_from_change(pct: float) -> int:
     return 7
 
 
+def _fetch_volatility_data(symbol: str) -> tuple[str, float | None]:
+    try:
+        hist = yf.Ticker(symbol).history(period="2d")
+        if len(hist) < 2:
+            return symbol, None
+        close_prev = hist["Close"].iloc[-2]
+        close_curr = hist["Close"].iloc[-1]
+        if close_prev == 0:
+            return symbol, None
+        return symbol, float((close_curr - close_prev) / close_prev * 100)
+    except Exception as e:
+        logger.error("Failed to fetch price for %s: %s", symbol, e)
+        return symbol, None
+
+
 def generate_volatility_alerts(db: Client) -> int:
     portfolio_result = db.table("portfolio").select("asset_symbol, user_id").execute()
     if not portfolio_result.data:
@@ -98,67 +116,55 @@ def generate_volatility_alerts(db: Client) -> int:
     for row in portfolio_result.data:
         asset_users.setdefault(row["asset_symbol"], set()).add(row["user_id"])
 
+    symbols = list(asset_users.keys())
+    change_map: dict[str, float] = {}
+    with ThreadPoolExecutor(max_workers=min(len(symbols), 10)) as executor:
+        futures = {executor.submit(_fetch_volatility_data, sym): sym for sym in symbols}
+        for future in as_completed(futures):
+            sym, change_pct = future.result()
+            if change_pct is not None and abs(change_pct) >= 7:
+                change_map[sym] = change_pct
+
+    today = date.today().isoformat()
     created = 0
 
-    for symbol, user_ids in asset_users.items():
-        try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="2d")
+    for symbol, change_pct in change_map.items():
+        user_ids = asset_users[symbol]
+        severity = _severity_from_change(change_pct)
+        direction = "up" if change_pct > 0 else "down"
+        message = f"{symbol} moved {direction} {abs(change_pct):.1f}% in 24 hours"
 
-            if len(hist) < 2:
+        already_alerted = {
+            row["user_id"]
+            for row in (
+                db.table("alerts")
+                .select("user_id")
+                .in_("user_id", list(user_ids))
+                .eq("asset_symbol", symbol)
+                .eq("alert_type", "volatility")
+                .gte("created_at", today)
+                .execute()
+            ).data
+        }
+
+        for user_id in user_ids:
+            if user_id in already_alerted:
                 continue
+            try:
+                insert = db.table("alerts").insert({
+                    "user_id": user_id,
+                    "asset_symbol": symbol,
+                    "alert_type": "volatility",
+                    "severity": severity,
+                    "message": message,
+                }).execute()
 
-            close_prev = hist["Close"].iloc[-2]
-            close_curr = hist["Close"].iloc[-1]
-
-            if close_prev == 0:
-                continue
-
-            change_pct = (close_curr - close_prev) / close_prev * 100
-
-            if abs(change_pct) < 7:
-                continue
-
-            severity = _severity_from_change(change_pct)
-            direction = "up" if change_pct > 0 else "down"
-            message = f"{symbol} moved {direction} {abs(change_pct):.1f}% in 24 hours"
-
-            today = date.today().isoformat()
-            for user_id in user_ids:
-                try:
-                    existing = (
-                        db.table("alerts")
-                        .select("id")
-                        .eq("user_id", user_id)
-                        .eq("asset_symbol", symbol)
-                        .eq("alert_type", "volatility")
-                        .gte("created_at", today)
-                        .execute()
-                    )
-                    if existing.data:
-                        continue
-
-                    insert = db.table("alerts").insert({
-                        "user_id": user_id,
-                        "asset_symbol": symbol,
-                        "alert_type": "volatility",
-                        "severity": severity,
-                        "message": message,
-                    }).execute()
-
-                    if insert.data:
-                        alert_id = insert.data[0]["id"]
-                        notify_alert(
-                            db, user_id, alert_id,
-                            f"Volatility Alert: {symbol}",
-                            message,
-                        )
-                        created += 1
-                except Exception as e:
-                    logger.error("Failed to create volatility alert for user %s, %s: %s", user_id, symbol, e)
-
-        except Exception as e:
-            logger.error("Failed to fetch price for %s: %s", symbol, e)
+                if insert.data:
+                    alert_id = insert.data[0]["id"]
+                    notify_alert(db, user_id, alert_id, f"Volatility Alert: {symbol}", message)
+                    created += 1
+            except Exception as e:
+                logger.error("Failed to create volatility alert for user %s, %s: %s", user_id, symbol, e)
 
     logger.info("Created %d volatility alerts", created)
     return created
