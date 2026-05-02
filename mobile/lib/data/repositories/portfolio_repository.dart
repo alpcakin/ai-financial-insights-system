@@ -18,6 +18,14 @@ class PortfolioRepository {
         'Authorization': 'Bearer $token',
       };
 
+  Map<String, dynamic> _decode(http.Response r) {
+    try {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    } on FormatException {
+      throw const PortfolioException('Server error. Please try again.');
+    }
+  }
+
   Future<PortfolioResponse> getPortfolio(String token) async {
     final response = await http
         .get(
@@ -26,12 +34,12 @@ class PortfolioRepository {
         )
         .timeout(_timeout);
 
+    final body = _decode(response);
+
     if (response.statusCode == 200) {
-      return PortfolioResponse.fromJson(
-          jsonDecode(response.body) as Map<String, dynamic>);
+      return PortfolioResponse.fromJson(body);
     }
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
     throw PortfolioException(body['detail'] as String? ?? 'Failed to load portfolio');
   }
 
@@ -57,7 +65,7 @@ class PortfolioRepository {
         )
         .timeout(_timeout);
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = _decode(response);
 
     if (response.statusCode == 201) {
       return PortfolioAsset.fromJson(body);
@@ -83,7 +91,7 @@ class PortfolioRepository {
         )
         .timeout(_timeout);
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = _decode(response);
 
     if (response.statusCode == 200) {
       return PortfolioAsset.fromJson(body);
@@ -102,7 +110,7 @@ class PortfolioRepository {
 
     if (response.statusCode == 204) return;
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = _decode(response);
     throw PortfolioException(body['detail'] as String? ?? 'Failed to delete asset');
   }
 }

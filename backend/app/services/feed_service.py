@@ -42,12 +42,7 @@ def distribute_article(
         return set()
 
     rows = [{"user_id": uid, "article_id": article_id} for uid in user_ids]
-
-    for row in rows:
-        try:
-            db.table("user_news_feed").insert(row).execute()
-        except Exception:
-            pass
+    db.table("user_news_feed").upsert(rows, on_conflict="user_id,article_id").execute()
 
     logger.info("Distributed article %s to %d users", article_id, len(rows))
     return user_ids
@@ -60,24 +55,39 @@ def get_feed(
     offset: int,
     category: str | None,
 ) -> dict:
-    result = (
-        db.table("user_news_feed")
-        .select("read, bookmarked, created_at, articles(*)")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .execute()
-    )
-
-    rows = result.data
-
     if category:
+        result = (
+            db.table("user_news_feed")
+            .select("read, bookmarked, created_at, articles(*)")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(500)
+            .execute()
+        )
         rows = [
-            r for r in rows
+            r for r in result.data
             if category in (r.get("articles") or {}).get("related_categories", [])
         ]
+        total = len(rows)
+        page = rows[offset: offset + limit]
+    else:
+        count_result = (
+            db.table("user_news_feed")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .execute()
+        )
+        total = count_result.count or 0
 
-    total = len(rows)
-    page = rows[offset: offset + limit]
+        page_result = (
+            db.table("user_news_feed")
+            .select("read, bookmarked, created_at, articles(*)")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
+        page = page_result.data
 
     articles = []
     for r in page:

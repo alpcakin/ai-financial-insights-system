@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from supabase import Client
 
 from app.core.database import get_db
@@ -11,9 +11,9 @@ router = APIRouter(prefix='/feed', tags=['feed'])
 
 @router.get('', response_model=FeedResponse)
 def list_feed(
-    limit: int = 20,
-    offset: int = 0,
-    category: str | None = None,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    category: str | None = Query(None, max_length=100),
     current_user: dict = Depends(get_current_user),
     db: Client = Depends(get_db),
 ):

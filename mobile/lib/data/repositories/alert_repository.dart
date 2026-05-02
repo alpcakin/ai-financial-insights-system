@@ -18,6 +18,14 @@ class AlertRepository {
         'Authorization': 'Bearer $token',
       };
 
+  Map<String, dynamic> _decode(http.Response r) {
+    try {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    } on FormatException {
+      throw const AlertException('Server error. Please try again.');
+    }
+  }
+
   Future<AlertsResponse> getAlerts(
     String token, {
     int limit = 20,
@@ -31,12 +39,12 @@ class AlertRepository {
         .get(uri, headers: _headers(token))
         .timeout(_timeout);
 
+    final body = _decode(response);
+
     if (response.statusCode == 200) {
-      return AlertsResponse.fromJson(
-          jsonDecode(response.body) as Map<String, dynamic>);
+      return AlertsResponse.fromJson(body);
     }
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
     throw AlertException(body['detail'] as String? ?? 'Failed to load alerts');
   }
 
@@ -51,7 +59,7 @@ class AlertRepository {
 
     if (response.statusCode == 200) return;
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = _decode(response);
     throw AlertException(
         body['detail'] as String? ?? 'Failed to register token');
   }

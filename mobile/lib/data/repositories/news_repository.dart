@@ -18,6 +18,14 @@ class NewsRepository {
         'Authorization': 'Bearer $token',
       };
 
+  Map<String, dynamic> _decode(http.Response r) {
+    try {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    } on FormatException {
+      throw const NewsException('Server error. Please try again.');
+    }
+  }
+
   Future<FeedResponse> getFeed(
     String token, {
     int limit = 20,
@@ -35,11 +43,12 @@ class NewsRepository {
         .get(uri, headers: _headers(token))
         .timeout(_timeout);
 
+    final body = _decode(response);
+
     if (response.statusCode == 200) {
-      return FeedResponse.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+      return FeedResponse.fromJson(body);
     }
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
     throw NewsException(body['detail'] as String? ?? 'Failed to load feed');
   }
 
@@ -53,7 +62,7 @@ class NewsRepository {
 
     if (response.statusCode == 200) return;
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = _decode(response);
     throw NewsException(body['detail'] as String? ?? 'Failed to mark as read');
   }
 }

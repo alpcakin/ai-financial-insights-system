@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_hours: int = 24
 
+    # Set to true in development .env to allow POST /news/trigger by any authenticated user
+    allow_manual_trigger: bool = False
+
     # Load variables from .env file; ignore any extra keys that are not
     # defined above so the file can also hold deployment-only variables.
     model_config = {"env_file": ".env", "extra": "ignore"}

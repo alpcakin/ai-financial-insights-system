@@ -56,15 +56,13 @@ def test_distribute_category_level1_parent():
     assert "u2" in result
 
 
-def test_distribute_silent_failure():
+def test_distribute_upsert_called():
     db = MagicMock()
 
     def t(name):
         m = chain_mock([])
         if name == "portfolio":
             m.execute.return_value.data = [{"user_id": "u1"}]
-        elif name == "user_news_feed":
-            m.execute.side_effect = Exception("duplicate key")
         return m
 
     db.table.side_effect = t
@@ -80,9 +78,29 @@ def test_get_feed_no_filter():
         "asset_impacts": [], "published_at": "2026-04-28",
     }
     db = MagicMock()
-    db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+
+    count_mock = MagicMock()
+    count_mock.execute.return_value.count = 1
+
+    page_mock = MagicMock()
+    page_mock.execute.return_value.data = [
         {"read": False, "bookmarked": False, "created_at": "2026-04-28", "articles": article}
     ]
+
+    select_call = [0]
+
+    def make_select(cols, **kwargs):
+        if select_call[0] == 0:
+            select_call[0] += 1
+            m = MagicMock()
+            m.eq.return_value = count_mock
+            return m
+        else:
+            m = MagicMock()
+            m.eq.return_value.order.return_value.range.return_value = page_mock
+            return m
+
+    db.table.return_value.select.side_effect = make_select
     result = get_feed(db, "u1", 20, 0, None)
     assert result["total"] == 1
     assert result["articles"][0]["title"] == "T"
@@ -102,7 +120,7 @@ def test_get_feed_category_filter():
         "asset_impacts": [], "published_at": "2026-04-28",
     }
     db = MagicMock()
-    db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value.data = [
+    db.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = [
         {"read": False, "bookmarked": False, "created_at": "2026-04-28", "articles": article_tech},
         {"read": False, "bookmarked": False, "created_at": "2026-04-28", "articles": article_fin},
     ]

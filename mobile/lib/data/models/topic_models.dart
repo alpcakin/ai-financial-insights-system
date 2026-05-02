@@ -3,15 +3,23 @@ class TopicCategory {
   final String name;
   final int level;
   final String? parentId;
-  bool followed;
+  final bool followed;
 
-  TopicCategory({
+  const TopicCategory({
     required this.id,
     required this.name,
     required this.level,
     this.parentId,
     required this.followed,
   });
+
+  TopicCategory copyWith({bool? followed}) => TopicCategory(
+        id: id,
+        name: name,
+        level: level,
+        parentId: parentId,
+        followed: followed ?? this.followed,
+      );
 
   factory TopicCategory.fromJson(Map<String, dynamic> json) => TopicCategory(
         id: json['id'] as String,

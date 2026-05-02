@@ -1,11 +1,13 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from typing import Annotated
+
+from pydantic import BaseModel, EmailStr, StringConstraints, field_validator
 
 from app.core.security import validate_password_strength
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: Annotated[str, StringConstraints(max_length=128)]
 
     @field_validator("password")
     @classmethod

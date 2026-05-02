@@ -18,6 +18,22 @@ class WatchlistRepository {
         'Authorization': 'Bearer $token',
       };
 
+  Map<String, dynamic> _decodeMap(http.Response r) {
+    try {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    } on FormatException {
+      throw const WatchlistException('Server error. Please try again.');
+    }
+  }
+
+  List<dynamic> _decodeList(http.Response r) {
+    try {
+      return jsonDecode(r.body) as List<dynamic>;
+    } on FormatException {
+      throw const WatchlistException('Server error. Please try again.');
+    }
+  }
+
   Future<List<WatchlistItem>> getWatchlist(String token) async {
     final response = await http
         .get(
@@ -27,13 +43,13 @@ class WatchlistRepository {
         .timeout(_timeout);
 
     if (response.statusCode == 200) {
-      final list = jsonDecode(response.body) as List<dynamic>;
+      final list = _decodeList(response);
       return list
           .map((e) => WatchlistItem.fromJson(e as Map<String, dynamic>))
           .toList();
     }
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = _decodeMap(response);
     throw WatchlistException(body['detail'] as String? ?? 'Failed to load watchlist');
   }
 
@@ -55,7 +71,7 @@ class WatchlistRepository {
         )
         .timeout(_timeout);
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = _decodeMap(response);
 
     if (response.statusCode == 201) {
       return WatchlistItem.fromJson(body);
@@ -74,7 +90,7 @@ class WatchlistRepository {
 
     if (response.statusCode == 204) return;
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = _decodeMap(response);
     throw WatchlistException(body['detail'] as String? ?? 'Failed to delete item');
   }
 }

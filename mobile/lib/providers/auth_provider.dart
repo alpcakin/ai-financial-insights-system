@@ -11,6 +11,8 @@
 // The two top-level providers ([authRepositoryProvider] and
 // [secureStorageProvider]) are defined separately so they can be
 // overridden in tests with mock implementations.
+import 'dart:convert';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -91,14 +93,30 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(error: null);
   }
 
-  /// Check secure storage for a previously saved token.
-  /// If all three values exist the user is considered logged in.
+  bool _isTokenExpired(String token) {
+    try {
+      final parts = token.split('.');
+      if (parts.length != 3) return true;
+      final payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      final claims = jsonDecode(payload) as Map<String, dynamic>;
+      final exp = claims['exp'] as int?;
+      if (exp == null) return true;
+      return DateTime.now().isAfter(DateTime.fromMillisecondsSinceEpoch(exp * 1000));
+    } catch (_) {
+      return true;
+    }
+  }
+
   Future<void> _restoreSession() async {
     final token = await _storage.read(key: AppConstants.tokenKey);
     final userId = await _storage.read(key: AppConstants.userIdKey);
     final email = await _storage.read(key: AppConstants.userEmailKey);
 
     if (token != null && userId != null && email != null) {
+      if (_isTokenExpired(token)) {
+        await _storage.deleteAll();
+        return;
+      }
       state = state.copyWith(
         isAuthenticated: true,
         userId: userId,

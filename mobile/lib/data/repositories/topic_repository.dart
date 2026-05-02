@@ -18,17 +18,33 @@ class TopicRepository {
         'Authorization': 'Bearer $token',
       };
 
+  Map<String, dynamic> _decodeMap(http.Response r) {
+    try {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    } on FormatException {
+      throw const TopicException('Server error. Please try again.');
+    }
+  }
+
+  List<dynamic> _decodeList(http.Response r) {
+    try {
+      return jsonDecode(r.body) as List<dynamic>;
+    } on FormatException {
+      throw const TopicException('Server error. Please try again.');
+    }
+  }
+
   Future<List<TopicCategory>> getTopics(String token) async {
     final response = await http
         .get(Uri.parse('${AppConstants.baseUrl}/topics'), headers: _headers(token))
         .timeout(_timeout);
 
     if (response.statusCode == 200) {
-      final list = jsonDecode(response.body) as List<dynamic>;
+      final list = _decodeList(response);
       return list.map((e) => TopicCategory.fromJson(e as Map<String, dynamic>)).toList();
     }
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = _decodeMap(response);
     throw TopicException(body['detail'] as String? ?? 'Failed to load topics');
   }
 
@@ -42,7 +58,7 @@ class TopicRepository {
 
     if (response.statusCode == 200) return;
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = _decodeMap(response);
     throw TopicException(body['detail'] as String? ?? 'Failed to follow topic');
   }
 
@@ -56,7 +72,7 @@ class TopicRepository {
 
     if (response.statusCode == 204) return;
 
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = _decodeMap(response);
     throw TopicException(body['detail'] as String? ?? 'Failed to unfollow topic');
   }
 }

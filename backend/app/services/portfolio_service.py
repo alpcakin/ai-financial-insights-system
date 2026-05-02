@@ -1,4 +1,5 @@
 import math
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from fastapi import HTTPException, status
 from supabase import Client
@@ -38,31 +39,36 @@ def _get_current_prices(symbols: list[str]) -> dict[str, float | None]:
         return {sym: None for sym in symbols}
 
 
+def _fetch_history_one(sym: str) -> tuple[str, dict]:
+    try:
+        hist = yf.Ticker(sym).history(period="2d", interval="1d", auto_adjust=False)
+        if len(hist) == 0:
+            return sym, {'price': None, 'daily_change': None, 'daily_change_pct': None}
+        if len(hist) == 1:
+            return sym, {'price': float(hist["Close"].iloc[-1]), 'daily_change': None, 'daily_change_pct': None}
+        curr = float(hist["Close"].iloc[-1])
+        prev = float(hist["Close"].iloc[-2])
+        if prev == 0:
+            return sym, {'price': curr, 'daily_change': None, 'daily_change_pct': None}
+        change = curr - prev
+        return sym, {
+            'price': curr,
+            'daily_change': round(change, 4),
+            'daily_change_pct': round(change / prev * 100, 2),
+        }
+    except Exception:
+        return sym, {'price': None, 'daily_change': None, 'daily_change_pct': None}
+
+
 def _get_prices_and_daily_changes(symbols: list[str]) -> dict[str, dict]:
     if not symbols:
         return {}
     result = {}
-    for sym in symbols:
-        try:
-            hist = yf.Ticker(sym).history(period="2d", interval="1d", auto_adjust=False)
-            if len(hist) == 0:
-                result[sym] = {'price': None, 'daily_change': None, 'daily_change_pct': None}
-            elif len(hist) == 1:
-                result[sym] = {'price': float(hist["Close"].iloc[-1]), 'daily_change': None, 'daily_change_pct': None}
-            else:
-                curr = float(hist["Close"].iloc[-1])
-                prev = float(hist["Close"].iloc[-2])
-                if prev == 0:
-                    result[sym] = {'price': curr, 'daily_change': None, 'daily_change_pct': None}
-                else:
-                    change = curr - prev
-                    result[sym] = {
-                        'price': curr,
-                        'daily_change': round(change, 4),
-                        'daily_change_pct': round(change / prev * 100, 2),
-                    }
-        except Exception:
-            result[sym] = {'price': None, 'daily_change': None, 'daily_change_pct': None}
+    with ThreadPoolExecutor(max_workers=min(len(symbols), 10)) as executor:
+        futures = {executor.submit(_fetch_history_one, sym): sym for sym in symbols}
+        for future in as_completed(futures):
+            sym, data = future.result()
+            result[sym] = data
     return result
 
 

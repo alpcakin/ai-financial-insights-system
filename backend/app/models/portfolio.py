@@ -1,14 +1,16 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, StringConstraints, field_validator
+
+AssetSymbol = Annotated[str, StringConstraints(min_length=1, max_length=20, strip_whitespace=True)]
 
 
 class AddAssetRequest(BaseModel):
-    asset_symbol: str
+    asset_symbol: AssetSymbol
     asset_type: Literal['stock', 'etf', 'crypto', 'bond', 'commodity', 'other']
     quantity: float
     purchase_price: float
-    category: str | None = None
+    category: Annotated[str | None, StringConstraints(max_length=100)] = None
 
     @field_validator('quantity', 'purchase_price')
     @classmethod
