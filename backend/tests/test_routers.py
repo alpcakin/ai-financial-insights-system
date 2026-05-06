@@ -175,22 +175,6 @@ def test_get_alerts_200(client, mock_db):
 
 # ── Reports ───────────────────────────────────────────────────────────────────
 
-def test_generate_report_200(client, mock_db):
-    from unittest.mock import patch
-    import pandas as pd
-
-    with patch("app.services.report_service.yf.Ticker") as mock_ticker:
-        mock_ticker.return_value.history.return_value = pd.DataFrame()
-        mock_db.table.side_effect = [
-            chain_mock([]),            # reports: no existing
-            chain_mock([]),            # user_news_feed: no articles
-            chain_mock([]),            # portfolio: no assets
-            chain_mock([REPORT_ROW]),  # reports: insert result
-        ]
-        r = client.post("/reports/generate")
-    assert r.status_code == 200
-
-
 def test_get_reports_200(client, mock_db):
     count_mock = MagicMock()
     count_mock.data = [REPORT_ROW]

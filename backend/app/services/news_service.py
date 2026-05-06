@@ -43,7 +43,7 @@ def fetch_articles(api_key: str, page_size: int) -> list[dict]:
         "access_key": api_key,
         "languages": "en",
         "categories": "business,technology",
-        "sort": "popularity",
+        "sort": "published_desc",
         "date": date.today().isoformat(),
         "limit": page_size,
     }
