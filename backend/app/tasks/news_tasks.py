@@ -1,5 +1,5 @@
 import logging
-from app.celery_app import celery
+
 from app.core.config import settings
 from app.core.database import get_db
 from app.services.news_service import fetch_articles, filter_new_articles
@@ -10,7 +10,6 @@ from app.services.alert_service import generate_impact_alerts
 logger = logging.getLogger(__name__)
 
 
-@celery.task(name="tasks.process_news_cycle")
 def process_news_cycle():
     db = get_db()
 

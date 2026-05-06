@@ -3,17 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.database import get_db
 from app.dependencies import get_current_user
 from app.models.report import ReportResponse, ReportsListResponse
-from app.services.report_service import generate_weekly_report, get_report, get_reports
+from app.services.report_service import get_report, get_reports
 
 router = APIRouter(prefix="/reports", tags=["reports"])
-
-
-@router.post("/generate", response_model=ReportResponse)
-def generate_report(
-    current_user: dict = Depends(get_current_user),
-    db=Depends(get_db),
-):
-    return generate_weekly_report(db, current_user["id"])
 
 
 @router.get("", response_model=ReportsListResponse)

@@ -16,11 +16,6 @@ class ReportsScreen extends ConsumerStatefulWidget {
 class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   String? _expandedId;
 
-  Future<void> _generate() async {
-    final token = ref.read(authProvider).token ?? '';
-    await ref.read(reportProvider.notifier).generate(token);
-  }
-
   Future<void> _refresh() async {
     final token = ref.read(authProvider).token ?? '';
     await ref.read(reportProvider.notifier).load(token);
@@ -54,117 +49,61 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ),
         ),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: GestureDetector(
-              onTap: state.isGenerating ? null : _generate,
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  color: state.isGenerating
-                      ? const Color(0xFFF1F5F9)
-                      : const Color(0xFF0F172A),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (state.isGenerating)
-                      const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Color(0xFF94A3B8),
-                        ),
-                      )
-                    else
-                      const Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      state.isGenerating ? 'Generating...' : 'Generate Weekly Report',
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: state.isGenerating
-                            ? const Color(0xFF94A3B8)
-                            : Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          if (state.error != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Text(
-                state.error!,
-                style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFEF4444)),
-              ),
-            ),
-          Expanded(
-            child: state.isLoading && state.reports.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : RefreshIndicator(
-                    onRefresh: _refresh,
-                    child: state.reports.isEmpty
-                        ? ListView(
-                            children: [
-                              Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.only(top: 64),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(Icons.bar_chart_rounded, size: 48, color: Color(0xFFCBD5E1)),
-                                      const SizedBox(height: 12),
-                                      Text(
-                                        'No reports yet',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w600,
-                                          color: const Color(0xFF475569),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Generate your first weekly report above',
-                                        style: GoogleFonts.inter(
-                                          fontSize: 13,
-                                          color: const Color(0xFF94A3B8),
-                                        ),
-                                      ),
-                                    ],
+      body: state.isLoading && state.reports.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: _refresh,
+              child: state.reports.isEmpty
+                  ? ListView(
+                      children: [
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 64),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.bar_chart_rounded,
+                                    size: 48, color: Color(0xFFCBD5E1)),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'No reports yet',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    color: const Color(0xFF475569),
                                   ),
                                 ),
-                              ),
-                            ],
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.only(top: 8, bottom: 24),
-                            itemCount: state.reports.length,
-                            itemBuilder: (context, index) {
-                              final report = state.reports[index];
-                              final isExpanded = _expandedId == report.id;
-                              return _ReportCard(
-                                report: report,
-                                isExpanded: isExpanded,
-                                formatPeriod: _formatPeriod,
-                                onTap: () => setState(() {
-                                  _expandedId = isExpanded ? null : report.id;
-                                }),
-                              );
-                            },
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Reports are generated automatically every Sunday',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    color: const Color(0xFF94A3B8),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                  ),
-          ),
-        ],
-      ),
+                        ),
+                      ],
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.only(top: 8, bottom: 24),
+                      itemCount: state.reports.length,
+                      itemBuilder: (context, index) {
+                        final report = state.reports[index];
+                        final isExpanded = _expandedId == report.id;
+                        return _ReportCard(
+                          report: report,
+                          isExpanded: isExpanded,
+                          formatPeriod: _formatPeriod,
+                          onTap: () => setState(() {
+                            _expandedId = isExpanded ? null : report.id;
+                          }),
+                        );
+                      },
+                    ),
+            ),
     );
   }
 }
@@ -212,7 +151,8 @@ class _ReportCard extends StatelessWidget {
                       color: const Color(0xFFF1F5F9),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Icon(Icons.calendar_today_rounded, size: 14, color: Color(0xFF475569)),
+                    child: const Icon(Icons.calendar_today_rounded,
+                        size: 14, color: Color(0xFF475569)),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -258,7 +198,9 @@ class _ReportCard extends StatelessWidget {
                     ),
                   const SizedBox(width: 8),
                   Icon(
-                    isExpanded ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                    isExpanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
                     color: const Color(0xFF94A3B8),
                     size: 20,
                   ),
@@ -466,7 +408,8 @@ class _TopArticlesSection extends StatelessWidget {
                   children: [
                     if (a.severity != null)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 3),
                         decoration: BoxDecoration(
                           color: color.withAlpha(15),
                           borderRadius: BorderRadius.circular(6),

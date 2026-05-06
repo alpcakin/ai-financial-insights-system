@@ -26,24 +26,6 @@ class ReportRepository {
     }
   }
 
-  Future<ReportItem> generateReport(String token) async {
-    final response = await http
-        .post(
-          Uri.parse('${AppConstants.baseUrl}/reports/generate'),
-          headers: _headers(token),
-        )
-        .timeout(_timeout);
-
-    final body = _decode(response);
-
-    if (response.statusCode == 200) {
-      return ReportItem.fromJson(body);
-    }
-
-    throw ReportException(
-        body['detail'] as String? ?? 'Failed to generate report');
-  }
-
   Future<ReportsResponse> getReports(
     String token, {
     int limit = 10,
