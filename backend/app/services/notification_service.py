@@ -56,6 +56,24 @@ def send_push(fcm_token: str, title: str, body: str) -> bool:
         return False
 
 
+def batch_fetch_fcm_tokens(db: Client, user_ids: set[str]) -> dict[str, str]:
+    if not user_ids:
+        return {}
+    result = (
+        db.table("users")
+        .select("id, notification_preferences")
+        .in_("id", list(user_ids))
+        .execute()
+    )
+    token_map: dict[str, str] = {}
+    for row in result.data:
+        prefs = row.get("notification_preferences") or {}
+        token = prefs.get("fcm_token")
+        if token:
+            token_map[row["id"]] = token
+    return token_map
+
+
 def notify_alert(db: Client, user_id: str, alert_id: str, title: str, body: str):
     result = db.table("users").select("notification_preferences").eq("id", user_id).execute()
     if not result.data:
@@ -66,6 +84,12 @@ def notify_alert(db: Client, user_id: str, alert_id: str, title: str, body: str)
     if not fcm_token:
         return
 
+    sent = send_push(fcm_token, title, body)
+    if sent:
+        db.table("alerts").update({"notification_sent": True}).eq("id", alert_id).execute()
+
+
+def notify_alert_with_token(db: Client, alert_id: str, fcm_token: str, title: str, body: str):
     sent = send_push(fcm_token, title, body)
     if sent:
         db.table("alerts").update({"notification_sent": True}).eq("id", alert_id).execute()

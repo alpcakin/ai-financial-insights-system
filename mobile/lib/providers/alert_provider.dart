@@ -19,6 +19,8 @@ class AlertState {
     this.hasMore = true,
   });
 
+  int get unreadCount => alerts.where((a) => !a.isRead).length;
+
   AlertState copyWith({
     List<AlertItem>? alerts,
     bool? isLoading,
@@ -62,6 +64,29 @@ class AlertNotifier extends StateNotifier<AlertState> {
   }
 
   Future<void> refresh(String token) => load(token);
+
+  Future<void> markAllRead(String token) async {
+    if (state.alerts.every((a) => a.isRead)) return;
+    try {
+      await _repository.markAllRead(token);
+      state = state.copyWith(
+        alerts: state.alerts.map((a) => AlertItem(
+          id: a.id,
+          userId: a.userId,
+          articleId: a.articleId,
+          assetSymbol: a.assetSymbol,
+          alertType: a.alertType,
+          severity: a.severity,
+          message: a.message,
+          notificationSent: a.notificationSent,
+          isRead: true,
+          createdAt: a.createdAt,
+        )).toList(),
+      );
+    } catch (_) {
+      // Non-fatal — UI still shows the alerts, badge stays until next load
+    }
+  }
 }
 
 final alertProvider = StateNotifierProvider<AlertNotifier, AlertState>((ref) {

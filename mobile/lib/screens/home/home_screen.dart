@@ -52,6 +52,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final token = ref.read(authProvider).token ?? '';
       ref.read(portfolioProvider.notifier).load(token);
       ref.read(watchlistProvider.notifier).load(token);
+      ref.read(alertProvider.notifier).load(token);
     });
   }
 
@@ -60,6 +61,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     await Future.wait([
       ref.read(portfolioProvider.notifier).load(token),
       ref.read(watchlistProvider.notifier).load(token),
+      ref.read(alertProvider.notifier).load(token),
     ]);
   }
 
@@ -1050,7 +1052,7 @@ class _AlertsBellButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final alertCount = ref.watch(alertProvider).alerts.length;
+    final alertCount = ref.watch(alertProvider).unreadCount;
 
     return IconButton(
       icon: Badge(

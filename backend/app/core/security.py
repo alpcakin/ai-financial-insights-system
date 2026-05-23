@@ -1,12 +1,6 @@
-"""
-Security utilities for password hashing and JWT token management.
-
-Passwords are hashed with bcrypt (12 rounds) before storage — the original
-plaintext is never saved.  JWT tokens carry the user ID in the "sub" claim
-and expire after the number of hours defined in settings.
-"""
-
+import hashlib
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -56,3 +50,11 @@ def decode_access_token(token: str) -> str | None:
         return payload.get("sub")
     except JWTError:
         return None
+
+
+def create_refresh_token() -> str:
+    return secrets.token_urlsafe(64)
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()

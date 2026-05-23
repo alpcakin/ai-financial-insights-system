@@ -17,9 +17,10 @@ class _AlertsScreenState extends ConsumerState<AlertsScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final token = ref.read(authProvider).token ?? '';
-      ref.read(alertProvider.notifier).load(token);
+      await ref.read(alertProvider.notifier).load(token);
+      ref.read(alertProvider.notifier).markAllRead(token);
     });
   }
 

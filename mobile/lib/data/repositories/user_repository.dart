@@ -91,4 +91,18 @@ class UserRepository {
     if (response.statusCode == 204) return;
     throw const UserException('Failed to delete account');
   }
+
+  Future<Map<String, dynamic>> exportData(String token) async {
+    final response = await http
+        .get(
+          Uri.parse('${AppConstants.baseUrl}/users/me/export'),
+          headers: _authHeaders(token),
+        )
+        .timeout(_timeout);
+
+    if (response.statusCode == 200) {
+      return _decode(response);
+    }
+    throw const UserException('Failed to export data');
+  }
 }

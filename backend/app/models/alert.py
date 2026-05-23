@@ -12,6 +12,7 @@ class AlertResponse(BaseModel):
     severity: int | None
     message: str | None
     notification_sent: bool
+    is_read: bool = False
     created_at: str
 
 

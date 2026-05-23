@@ -7,6 +7,7 @@ from app.models.user import ChangePasswordRequest, UpdatePreferencesRequest, Use
 from app.services.user_service import (
     change_password,
     delete_account,
+    export_user_data,
     get_user_profile,
     update_preferences,
 )
@@ -36,6 +37,14 @@ def change_password_endpoint(
 ):
     change_password(db, current_user["id"], request.current_password, request.new_password)
     return {"status": "ok"}
+
+
+@router.get("/me/export")
+def export_me(
+    current_user: dict = Depends(get_current_user),
+    db: Client = Depends(get_db),
+):
+    return export_user_data(db, current_user)
 
 
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)

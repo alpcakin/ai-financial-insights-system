@@ -7,12 +7,14 @@
 /// of the app never works with raw maps.
 class AuthToken {
   final String accessToken;
+  final String refreshToken;
   final String tokenType;
   final String userId;
   final String email;
 
   const AuthToken({
     required this.accessToken,
+    required this.refreshToken,
     required this.tokenType,
     required this.userId,
     required this.email,
@@ -20,6 +22,7 @@ class AuthToken {
 
   factory AuthToken.fromJson(Map<String, dynamic> json) => AuthToken(
         accessToken: json['access_token'] as String,
+        refreshToken: json['refresh_token'] as String,
         tokenType: json['token_type'] as String,
         userId: json['user_id'] as String,
         email: json['email'] as String,

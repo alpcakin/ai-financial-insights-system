@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/auth_provider.dart';
 import '../../providers/user_provider.dart';
+import '../privacy/privacy_policy_screen.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -56,6 +57,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       }
     }
     if (mounted) setState(() { _volatilityOverride = null; _updatingVolatility = false; });
+  }
+
+  void _openPrivacyPolicy() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const PrivacyPolicyScreen()),
+    );
+  }
+
+  Future<void> _exportData() async {
+    final token = ref.read(authProvider).token ?? '';
+    try {
+      await ref.read(userProvider.notifier).exportData(token);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Your data has been exported successfully.')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to export data. Please try again.')),
+      );
+    }
   }
 
   void _showChangePasswordSheet() {
@@ -211,6 +235,28 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500)),
                 trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
                 onTap: _showChangePasswordSheet,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+            _SectionHeader(title: 'Privacy'),
+
+            _SettingsTile(
+              child: ListTile(
+                title: Text('Privacy Policy',
+                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500)),
+                trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
+                onTap: _openPrivacyPolicy,
+              ),
+            ),
+            _SettingsTile(
+              child: ListTile(
+                title: Text('Export My Data',
+                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500)),
+                subtitle: Text('Download a copy of your data',
+                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
+                trailing: const Icon(Icons.download_outlined, size: 18, color: Color(0xFF94A3B8)),
+                onTap: _exportData,
               ),
             ),
 

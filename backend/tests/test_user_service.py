@@ -7,6 +7,7 @@ from app.models.user import UpdatePreferencesRequest
 from app.services.user_service import (
     change_password,
     delete_account,
+    export_user_data,
     get_user_profile,
     update_preferences,
 )
@@ -86,3 +87,22 @@ def test_delete_account_calls_delete():
     delete_account(db, "user-123")
     db.table.assert_called_with("users")
     db.table.return_value.delete.assert_called_once()
+
+
+def test_export_user_data_structure():
+    db = make_db({
+        "portfolio": [{"asset_symbol": "AAPL", "asset_type": "stock", "quantity": 10.0, "purchase_price": 150.0, "added_at": "2026-01-01"}],
+        "watchlist": [],
+        "alerts": [],
+        "followed_topics": [],
+        "reports": [],
+    })
+    result = export_user_data(db, _USER)
+    assert result["profile"]["id"] == "user-123"
+    assert result["profile"]["email"] == "test@example.com"
+    assert len(result["portfolio"]) == 1
+    assert result["portfolio"][0]["asset_symbol"] == "AAPL"
+    assert "watchlist" in result
+    assert "alerts" in result
+    assert "followed_topics" in result
+    assert "reports" in result

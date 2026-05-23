@@ -6,15 +6,27 @@ from supabase import Client
 
 from app.core.database import get_db
 from app.core.security import validate_password_strength
+from pydantic import BaseModel
+
 from app.models.user import ForgotPasswordRequest, LoginRequest, RegisterRequest, RegisterResponse, TokenResponse
 from app.services.auth_service import (
     get_user_by_reset_token,
+    invalidate_refresh_token,
     login_user,
+    refresh_access_token,
     register_user,
     request_password_reset,
     reset_password,
     verify_email,
 )
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -76,6 +88,17 @@ def _reset_form_html(token: str, error: str = "") -> str:
             </button>
         </form>
     """)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh_token(request: RefreshRequest, db: Client = Depends(get_db)):
+    return refresh_access_token(db, request.refresh_token)
+
+
+@router.post("/logout")
+def logout(request: LogoutRequest, db: Client = Depends(get_db)):
+    invalidate_refresh_token(db, request.refresh_token)
+    return {"status": "ok"}
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=201)

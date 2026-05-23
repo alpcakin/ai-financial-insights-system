@@ -4,8 +4,10 @@ import pytest
 
 from app.core.security import (
     create_access_token,
+    create_refresh_token,
     decode_access_token,
     hash_password,
+    hash_refresh_token,
     validate_password_strength,
     verify_password,
 )
@@ -87,3 +89,28 @@ def test_validate_password_strength_no_digit():
 def test_validate_password_strength_no_special():
     with pytest.raises(ValueError, match="special"):
         validate_password_strength("Password1")
+
+
+def test_create_refresh_token_is_string():
+    token = create_refresh_token()
+    assert isinstance(token, str)
+    assert len(token) >= 80
+
+
+def test_create_refresh_token_unique():
+    assert create_refresh_token() != create_refresh_token()
+
+
+def test_hash_refresh_token_is_hex():
+    h = hash_refresh_token("some-token")
+    assert len(h) == 64
+    assert all(c in "0123456789abcdef" for c in h)
+
+
+def test_hash_refresh_token_deterministic():
+    t = create_refresh_token()
+    assert hash_refresh_token(t) == hash_refresh_token(t)
+
+
+def test_hash_refresh_token_different_inputs():
+    assert hash_refresh_token("tok-a") != hash_refresh_token("tok-b")

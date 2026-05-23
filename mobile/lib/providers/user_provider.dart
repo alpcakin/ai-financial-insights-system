@@ -87,6 +87,10 @@ class UserNotifier extends StateNotifier<UserState> {
   Future<void> deleteAccount(String token) async {
     await _repository.deleteAccount(token);
   }
+
+  Future<Map<String, dynamic>> exportData(String token) async {
+    return _repository.exportData(token);
+  }
 }
 
 final userProvider = StateNotifierProvider<UserNotifier, UserState>((ref) {

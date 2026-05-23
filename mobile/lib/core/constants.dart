@@ -13,6 +13,7 @@ abstract class AppConstants {
     defaultValue: 'http://10.0.2.2:8000',
   );
   static const String tokenKey = 'access_token';
+  static const String refreshTokenKey = 'refresh_token';
   static const String userIdKey = 'user_id';
   static const String userEmailKey = 'user_email';
 }

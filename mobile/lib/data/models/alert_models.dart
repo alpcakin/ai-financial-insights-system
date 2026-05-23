@@ -7,6 +7,7 @@ class AlertItem {
   final int? severity;
   final String? message;
   final bool notificationSent;
+  final bool isRead;
   final String createdAt;
 
   const AlertItem({
@@ -18,6 +19,7 @@ class AlertItem {
     this.severity,
     this.message,
     required this.notificationSent,
+    this.isRead = false,
     required this.createdAt,
   });
 
@@ -30,6 +32,7 @@ class AlertItem {
         severity: json['severity'] as int?,
         message: json['message'] as String?,
         notificationSent: json['notification_sent'] as bool? ?? false,
+        isRead: json['is_read'] as bool? ?? false,
         createdAt: json['created_at'] as String,
       );
 }

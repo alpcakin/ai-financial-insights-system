@@ -48,6 +48,20 @@ class AlertRepository {
     throw AlertException(body['detail'] as String? ?? 'Failed to load alerts');
   }
 
+  Future<void> markAllRead(String token) async {
+    final response = await http
+        .patch(
+          Uri.parse('${AppConstants.baseUrl}/alerts/read-all'),
+          headers: _headers(token),
+        )
+        .timeout(_timeout);
+
+    if (response.statusCode == 200) return;
+
+    final body = _decode(response);
+    throw AlertException(body['detail'] as String? ?? 'Failed to mark alerts as read');
+  }
+
   Future<void> registerToken(String token, String fcmToken) async {
     final response = await http
         .post(
