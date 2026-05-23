@@ -7,7 +7,13 @@ from fastapi import HTTPException, status
 from supabase import Client
 
 from app.core.config import settings
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    hash_password,
+    hash_refresh_token,
+    verify_password,
+)
 from app.models.user import LoginRequest, RegisterRequest, RegisterResponse, TokenResponse
 
 logger = logging.getLogger(__name__)
@@ -131,8 +137,27 @@ def login_user(db: Client, request: LoginRequest) -> TokenResponse:
             detail="Please verify your email before signing in",
         )
 
-    token = create_access_token(user["id"])
-    return TokenResponse(access_token=token, user_id=user["id"], email=user["email"])
+    raw_refresh = create_refresh_token()
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)).isoformat()
+    insert = db.table("refresh_tokens").insert({
+        "user_id": user["id"],
+        "token_hash": hash_refresh_token(raw_refresh),
+        "expires_at": expires_at,
+    }).execute()
+
+    if not insert.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create session",
+        )
+
+    access_token = create_access_token(user["id"])
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=raw_refresh,
+        user_id=user["id"],
+        email=user["email"],
+    )
 
 
 def request_password_reset(db: Client, email: str) -> None:
@@ -185,3 +210,59 @@ def reset_password(db: Client, token: str, new_password: str) -> None:
         "password_reset_token": None,
         "password_reset_expires_at": None,
     }).eq("id", user["id"]).execute()
+
+
+def refresh_access_token(db: Client, raw_refresh_token: str) -> TokenResponse:
+    token_hash = hash_refresh_token(raw_refresh_token)
+    result = (
+        db.table("refresh_tokens")
+        .select("id, user_id, expires_at")
+        .eq("token_hash", token_hash)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+    row = result.data[0]
+    expires_str = row.get("expires_at", "")
+    expires_at = datetime.fromisoformat(expires_str.replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) > expires_at:
+        db.table("refresh_tokens").delete().eq("id", row["id"]).execute()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+
+    user_result = (
+        db.table("users")
+        .select("id, email")
+        .eq("id", row["user_id"])
+        .execute()
+    )
+    if not user_result.data:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    user = user_result.data[0]
+
+    db.table("refresh_tokens").delete().eq("id", row["id"]).execute()
+
+    new_raw_refresh = create_refresh_token()
+    new_expires_at = (datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)).isoformat()
+    insert = db.table("refresh_tokens").insert({
+        "user_id": user["id"],
+        "token_hash": hash_refresh_token(new_raw_refresh),
+        "expires_at": new_expires_at,
+    }).execute()
+
+    if not insert.data:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to rotate session")
+
+    new_access_token = create_access_token(user["id"])
+    return TokenResponse(
+        access_token=new_access_token,
+        refresh_token=new_raw_refresh,
+        user_id=user["id"],
+        email=user["email"],
+    )
+
+
+def invalidate_refresh_token(db: Client, raw_refresh_token: str) -> None:
+    token_hash = hash_refresh_token(raw_refresh_token)
+    db.table("refresh_tokens").delete().eq("token_hash", token_hash).execute()

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     jwt_expire_hours: int = 24
+    refresh_token_expire_days: int = 30
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

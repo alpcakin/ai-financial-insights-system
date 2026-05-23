@@ -43,6 +43,7 @@ ALERT_ROW = {
     "severity": 8,
     "message": "AAPL moved up 10.0%",
     "notification_sent": False,
+    "is_read": False,
     "created_at": "2026-04-28T00:00:00",
 }
 
@@ -66,16 +67,48 @@ def test_register_409(auth_client, mock_db):
 
 def test_login_200(auth_client, mock_db):
     mock_db.table.side_effect = [
-        chain_mock([{"id": "u1", "email": "user@example.com", "password_hash": hash_password("Password1!"), "email_verified": True}])
+        chain_mock([{"id": "u1", "email": "user@example.com", "password_hash": hash_password("Password1!"), "email_verified": True}]),
+        chain_mock([{"id": "rt1", "user_id": "u1"}]),
     ]
     r = auth_client.post("/auth/login", json={"email": "user@example.com", "password": "Password1!"})
     assert r.status_code == 200
+    assert "refresh_token" in r.json()
 
 
 def test_login_401(auth_client, mock_db):
     mock_db.table.side_effect = [chain_mock([])]
     r = auth_client.post("/auth/login", json={"email": "missing@example.com", "password": "Password1!"})
     assert r.status_code == 401
+
+
+def test_refresh_200(auth_client, mock_db):
+    from app.core.security import create_refresh_token, hash_refresh_token
+    raw = create_refresh_token()
+    expires = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
+    rt_row = {"id": "rt1", "user_id": "u1", "token_hash": hash_refresh_token(raw), "expires_at": expires}
+    mock_db.table.side_effect = [
+        chain_mock([rt_row]),                              # select refresh_tokens
+        chain_mock([{"id": "u1", "email": "u@ex.com"}]),  # select users
+        chain_mock([]),                                    # delete old refresh token
+        chain_mock([{"id": "rt2"}]),                       # insert new refresh token
+    ]
+    r = auth_client.post("/auth/refresh", json={"refresh_token": raw})
+    assert r.status_code == 200
+    data = r.json()
+    assert "access_token" in data
+    assert "refresh_token" in data
+
+
+def test_refresh_401_invalid(auth_client, mock_db):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = auth_client.post("/auth/refresh", json={"refresh_token": "bad-token"})
+    assert r.status_code == 401
+
+
+def test_logout_200(auth_client, mock_db):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = auth_client.post("/auth/logout", json={"refresh_token": "some-token"})
+    assert r.status_code == 200
 
 
 # ── Portfolio ─────────────────────────────────────────────────────────────────
@@ -173,6 +206,13 @@ def test_get_alerts_200(client, mock_db):
     assert r.status_code == 200
 
 
+def test_mark_alerts_read_200(client, mock_db):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = client.patch("/alerts/read-all")
+    assert r.status_code == 200
+    assert "marked_read" in r.json()
+
+
 # ── Reports ───────────────────────────────────────────────────────────────────
 
 def test_get_reports_200(client, mock_db):
@@ -234,6 +274,17 @@ def test_get_me_200(client):
     r = client.get("/users/me")
     assert r.status_code == 200
     assert r.json()["email"] == "test@example.com"
+
+
+def test_export_me_200(client, mock_db):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = client.get("/users/me/export")
+    assert r.status_code == 200
+    body = r.json()
+    assert "profile" in body
+    assert "portfolio" in body
+    assert "watchlist" in body
+    assert "alerts" in body
 
 
 def test_update_me_200(client, mock_db):

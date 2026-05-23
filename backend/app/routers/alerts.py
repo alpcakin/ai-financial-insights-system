@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from app.core.database import get_db
 from app.dependencies import get_current_user
 from app.models.alert import AlertsResponse, RegisterTokenRequest
-from app.services.alert_service import get_alerts, generate_volatility_alerts
+from app.services.alert_service import get_alerts, generate_volatility_alerts, mark_alerts_read
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -16,6 +16,15 @@ def list_alerts(
     db=Depends(get_db),
 ):
     return get_alerts(db, current_user["id"], limit, offset)
+
+
+@router.patch("/read-all")
+def mark_all_read(
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    count = mark_alerts_read(db, current_user["id"])
+    return {"marked_read": count}
 
 
 @router.post("/register-token")

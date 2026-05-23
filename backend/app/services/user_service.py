@@ -53,3 +53,24 @@ def change_password(db: Client, user_id: str, current_password: str, new_passwor
 
 def delete_account(db: Client, user_id: str) -> None:
     db.table("users").delete().eq("id", user_id).execute()
+
+
+def export_user_data(db: Client, user: dict) -> dict:
+    portfolio = db.table("portfolio").select("asset_symbol, asset_type, quantity, purchase_price, added_at").eq("user_id", user["id"]).execute()
+    watchlist = db.table("watchlist").select("asset_symbol, asset_type, added_at").eq("user_id", user["id"]).execute()
+    alerts = db.table("alerts").select("alert_type, asset_symbol, severity, message, created_at").eq("user_id", user["id"]).order("created_at", desc=True).execute()
+    topics = db.table("followed_topics").select("category_id, followed_at").eq("user_id", user["id"]).execute()
+    reports = db.table("reports").select("report_type, period_start, period_end, generated_at").eq("user_id", user["id"]).execute()
+
+    return {
+        "profile": {
+            "id": user["id"],
+            "email": user["email"],
+            "created_at": user.get("created_at"),
+        },
+        "portfolio": portfolio.data,
+        "watchlist": watchlist.data,
+        "alerts": alerts.data,
+        "followed_topics": topics.data,
+        "reports": reports.data,
+    }

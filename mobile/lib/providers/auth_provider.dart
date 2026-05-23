@@ -111,19 +111,35 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final token = await _storage.read(key: AppConstants.tokenKey);
     final userId = await _storage.read(key: AppConstants.userIdKey);
     final email = await _storage.read(key: AppConstants.userEmailKey);
+    final storedRefreshToken = await _storage.read(key: AppConstants.refreshTokenKey);
 
-    if (token != null && userId != null && email != null) {
-      if (_isTokenExpired(token)) {
-        await _storage.deleteAll();
-        return;
-      }
+    if (token == null || userId == null || email == null) return;
+
+    if (!_isTokenExpired(token)) {
       state = state.copyWith(
         isAuthenticated: true,
         userId: userId,
         email: email,
         token: token,
       );
+      return;
     }
+
+    if (storedRefreshToken != null) {
+      final refreshed = await _repository.refresh(storedRefreshToken);
+      if (refreshed != null) {
+        await _persistSession(refreshed);
+        state = state.copyWith(
+          isAuthenticated: true,
+          userId: refreshed.userId,
+          email: refreshed.email,
+          token: refreshed.accessToken,
+        );
+        return;
+      }
+    }
+
+    await _storage.deleteAll();
   }
 
   /// Create a new account.  Returns true when the server accepted the request
@@ -168,16 +184,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Clear all stored credentials and reset to the initial state.
   Future<void> logout() async {
+    final refreshToken = await _storage.read(key: AppConstants.refreshTokenKey);
     await _storage.deleteAll();
     _invalidateDataProviders();
     state = const AuthState();
+    if (refreshToken != null) {
+      _repository.serverLogout(refreshToken);
+    }
   }
 
-  /// Write session data to the Android Keystore via FlutterSecureStorage.
   Future<void> _persistSession(AuthToken token) async {
     await _storage.write(key: AppConstants.tokenKey, value: token.accessToken);
+    await _storage.write(key: AppConstants.refreshTokenKey, value: token.refreshToken);
     await _storage.write(key: AppConstants.userIdKey, value: token.userId);
     await _storage.write(key: AppConstants.userEmailKey, value: token.email);
   }

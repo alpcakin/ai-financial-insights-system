@@ -6,7 +6,9 @@ from app.services.alert_service import (
     _severity_from_change,
     generate_impact_alerts,
     generate_volatility_alerts,
+    mark_alerts_read,
 )
+from app.services.notification_service import batch_fetch_fcm_tokens
 from tests.conftest import chain_mock, make_db
 
 
@@ -157,3 +159,33 @@ def test_volatility_alert_skips_existing(mock_ticker):
     db.table.side_effect = t
     count = generate_volatility_alerts(db)
     assert count == 0
+
+
+def test_mark_alerts_read_returns_count():
+    updated = [{"id": "a1"}, {"id": "a2"}]
+    db = make_db({"alerts": updated})
+    count = mark_alerts_read(db, "user-1")
+    assert count == 2
+
+
+def test_mark_alerts_read_empty():
+    db = make_db({"alerts": []})
+    count = mark_alerts_read(db, "user-1")
+    assert count == 0
+
+
+def test_batch_fetch_fcm_tokens_returns_map():
+    users = [
+        {"id": "u1", "notification_preferences": {"fcm_token": "tok1"}},
+        {"id": "u2", "notification_preferences": {"fcm_token": "tok2"}},
+        {"id": "u3", "notification_preferences": {}},
+    ]
+    db = make_db({"users": users})
+    result = batch_fetch_fcm_tokens(db, {"u1", "u2", "u3"})
+    assert result == {"u1": "tok1", "u2": "tok2"}
+
+
+def test_batch_fetch_fcm_tokens_empty_input():
+    db = make_db({})
+    result = batch_fetch_fcm_tokens(db, set())
+    assert result == {}

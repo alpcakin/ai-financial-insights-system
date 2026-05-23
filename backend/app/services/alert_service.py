@@ -5,7 +5,7 @@ from datetime import date
 import yfinance as yf
 from supabase import Client
 
-from app.services.notification_service import notify_alert
+from app.services.notification_service import batch_fetch_fcm_tokens, notify_alert_with_token
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,8 @@ def generate_impact_alerts(
     for row in portfolio_rows:
         user_portfolio_map.setdefault(row["user_id"], set()).add(row["asset_symbol"])
 
+    fcm_tokens = batch_fetch_fcm_tokens(db, user_ids)
+
     created = 0
     for user_id in user_ids:
         if user_id in already_alerted:
@@ -72,7 +74,9 @@ def generate_impact_alerts(
 
             if insert.data:
                 alert_id = insert.data[0]["id"]
-                notify_alert(db, user_id, alert_id, f"High Impact: {top['symbol']}", message)
+                fcm_token = fcm_tokens.get(user_id)
+                if fcm_token:
+                    notify_alert_with_token(db, alert_id, fcm_token, f"High Impact: {top['symbol']}", message)
                 created += 1
         except Exception as e:
             logger.error("Failed to create impact alert for user %s: %s", user_id, e)
@@ -128,6 +132,11 @@ def generate_volatility_alerts(db: Client) -> int:
     today = date.today().isoformat()
     created = 0
 
+    all_user_ids: set[str] = set()
+    for user_ids in asset_users.values():
+        all_user_ids.update(user_ids)
+    fcm_tokens = batch_fetch_fcm_tokens(db, all_user_ids)
+
     for symbol, change_pct in change_map.items():
         user_ids = asset_users[symbol]
         severity = _severity_from_change(change_pct)
@@ -161,7 +170,9 @@ def generate_volatility_alerts(db: Client) -> int:
 
                 if insert.data:
                     alert_id = insert.data[0]["id"]
-                    notify_alert(db, user_id, alert_id, f"Volatility Alert: {symbol}", message)
+                    fcm_token = fcm_tokens.get(user_id)
+                    if fcm_token:
+                        notify_alert_with_token(db, alert_id, fcm_token, f"Volatility Alert: {symbol}", message)
                     created += 1
             except Exception as e:
                 logger.error("Failed to create volatility alert for user %s, %s: %s", user_id, symbol, e)
@@ -186,3 +197,14 @@ def get_alerts(db: Client, user_id: str, limit: int, offset: int) -> dict:
         "offset": offset,
         "limit": limit,
     }
+
+
+def mark_alerts_read(db: Client, user_id: str) -> int:
+    result = (
+        db.table("alerts")
+        .update({"is_read": True})
+        .eq("user_id", user_id)
+        .eq("is_read", False)
+        .execute()
+    )
+    return len(result.data) if result.data else 0

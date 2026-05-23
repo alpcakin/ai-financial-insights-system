@@ -76,4 +76,37 @@ class AuthRepository {
 
     throw AuthException(body['detail'] as String? ?? 'Login failed');
   }
+
+  Future<AuthToken?> refresh(String refreshToken) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('${AppConstants.baseUrl}/auth/refresh'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'refresh_token': refreshToken}),
+          )
+          .timeout(_timeout);
+
+      if (response.statusCode == 200) {
+        return AuthToken.fromJson(_decode(response));
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> serverLogout(String refreshToken) async {
+    try {
+      await http
+          .post(
+            Uri.parse('${AppConstants.baseUrl}/auth/logout'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'refresh_token': refreshToken}),
+          )
+          .timeout(_timeout);
+    } catch (_) {
+      // Fire-and-forget — local state is already cleared
+    }
+  }
 }
