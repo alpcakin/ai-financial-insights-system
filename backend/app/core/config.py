@@ -10,8 +10,6 @@ class Settings(BaseSettings):
     openai_api_key: str
     mediastack_api_key: str
 
-    redis_url: str = "redis://localhost:6379/0"
-
     news_fetch_interval_minutes: int = 0
     mediastack_page_size: int = 100
 

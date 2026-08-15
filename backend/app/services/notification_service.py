@@ -74,21 +74,6 @@ def batch_fetch_fcm_tokens(db: Client, user_ids: set[str]) -> dict[str, str]:
     return token_map
 
 
-def notify_alert(db: Client, user_id: str, alert_id: str, title: str, body: str):
-    result = db.table("users").select("notification_preferences").eq("id", user_id).execute()
-    if not result.data:
-        return
-
-    prefs = result.data[0].get("notification_preferences") or {}
-    fcm_token = prefs.get("fcm_token")
-    if not fcm_token:
-        return
-
-    sent = send_push(fcm_token, title, body)
-    if sent:
-        db.table("alerts").update({"notification_sent": True}).eq("id", alert_id).execute()
-
-
 def notify_alert_with_token(db: Client, alert_id: str, fcm_token: str, title: str, body: str):
     sent = send_push(fcm_token, title, body)
     if sent:
