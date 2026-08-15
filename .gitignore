@@ -17,6 +17,8 @@ LIMITATIONS.md
 DESIGN_DECISIONS.md
 STARTUP_GUIDE.md
 TODO.md
+AI_MODEL_SELECTION_PLAN.md
+DEFENSE_PREP.md
 dev_start.bat
 firebase-service-account.json
 mobile/android/app/google-services.json
