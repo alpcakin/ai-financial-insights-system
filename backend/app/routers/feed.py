@@ -5,6 +5,7 @@ from app.core.database import get_db
 from app.dependencies import get_current_user
 from app.models.feed import FeedResponse
 from app.services.feed_service import get_feed, mark_read
+from app.services.user_service import effective_provider
 
 router = APIRouter(prefix='/feed', tags=['feed'])
 
@@ -17,7 +18,7 @@ def list_feed(
     current_user: dict = Depends(get_current_user),
     db: Client = Depends(get_db),
 ):
-    return get_feed(db, current_user['id'], limit, offset, category)
+    return get_feed(db, current_user['id'], limit, offset, category, effective_provider(current_user))
 
 
 @router.patch('/{article_id}/read')

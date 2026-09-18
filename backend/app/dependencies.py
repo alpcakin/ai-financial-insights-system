@@ -15,8 +15,6 @@ from supabase import Client
 from app.core.database import get_db
 from app.core.security import decode_access_token
 
-# HTTPBearer tells FastAPI to expect an "Authorization: Bearer <token>" header
-# and automatically returns 403 if the header is missing.
 bearer = HTTPBearer()
 
 
@@ -34,7 +32,7 @@ def get_current_user(
             detail="Invalid or expired token",
         )
 
-    result = db.table("users").select("id, email, notification_preferences, created_at").eq("id", user_id).execute()
+    result = db.table("users").select("id, email, notification_preferences, ai_provider, created_at").eq("id", user_id).execute()
     if not result.data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

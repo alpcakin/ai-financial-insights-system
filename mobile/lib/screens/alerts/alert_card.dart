@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../data/models/alert_models.dart';
+import '../../widgets/ai_provider_badge.dart';
 
 class AlertCard extends StatelessWidget {
   final AlertItem alert;
@@ -96,6 +97,10 @@ class AlertCard extends StatelessWidget {
                           ),
                         ),
                       ),
+                    if (alert.aiProviderName != null) ...[
+                      const SizedBox(width: 6),
+                      AiProviderBadge(name: alert.aiProviderName),
+                    ],
                     const Spacer(),
                     Text(
                       _timeAgo(),

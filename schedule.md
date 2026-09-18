@@ -48,3 +48,14 @@ API response time optimization, database query tuning, caching strategy for freq
 
 ## Deployment & Documentation
 Backend deployment to Railway/Heroku with Gunicorn, APK build and distribution, environment variable configuration, final documentation updates, and thesis report preparation.
+
+## Deviations from the plan
+
+The sections above are the original plan. The delivered system differs in these points:
+
+- **Scheduling**: Celery and Redis were replaced by an in-process APScheduler (May 2026). One process is simpler to deploy and the job volume did not justify a broker.
+- **Reports**: only the weekly report is generated, on Sundays at 20:00. The daily report, the on-demand generation option and the GPT-generated "Tier 1" asset reports were dropped; reports are computed from price data alone.
+- **Offline cache**: the SQLite cache for the dashboard was not implemented. The app requires a connection.
+- **Load testing**: no load tests were run. Performance work was limited to database indexes, batched price lookups and batched push notifications.
+- **AI providers**: the single hard-wired GPT-4o-mini call was replaced by a provider abstraction (September 2026). Every article is analyzed by all enabled providers, users choose which one they see, and results are stored per provider for comparison.
+- **Tables**: the schema grew from 8 to 11 tables (watchlist, refresh_tokens, article_analyses).

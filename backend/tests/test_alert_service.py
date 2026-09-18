@@ -62,26 +62,70 @@ def _impact_db(existing_alerts=False, portfolio_symbols=None):
 
 def test_impact_alert_created_severity_7():
     db = MagicMock()
-    call_list = []
+    inserted = []
 
     def t(name):
         m = chain_mock([])
-        if name == "alerts" and not call_list:
-            call_list.append(1)
-            m.execute.return_value.data = []
-        elif name == "alerts" and len(call_list) == 1:
-            call_list.append(2)
-            m.execute.return_value.data = [{"id": "a1"}]
+        if name == "alerts":
+            m.execute.return_value.data = []  # dedup check: nothing yet
+
+            def insert(payload):
+                inserted.append(payload)
+                return chain_mock([{"id": "a1", **payload}])
+            m.insert.side_effect = insert
         elif name == "portfolio":
             m.execute.return_value.data = [{"user_id": "u1", "asset_symbol": "AAPL"}]
         elif name == "users":
-            m.execute.return_value.data = [{"notification_preferences": {}}]
+            m.execute.return_value.data = [{"id": "u1", "notification_preferences": {}}]
         return m
 
     db.table.side_effect = t
     asset_impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 7, "reason": "bad news"}]
     count = generate_impact_alerts(db, "article-1", {"u1"}, asset_impacts)
-    assert count >= 0
+
+    assert count == 1
+    assert len(inserted) == 1
+    alert = inserted[0]
+    assert alert["user_id"] == "u1"
+    assert alert["article_id"] == "article-1"
+    assert alert["asset_symbol"] == "AAPL"
+    assert alert["alert_type"] == "impact"
+    assert alert["severity"] == 7
+    assert alert["message"] == "AAPL: bad news"
+
+
+def test_impact_alert_picks_highest_severity_asset_in_portfolio():
+    db = MagicMock()
+    inserted = []
+
+    def t(name):
+        m = chain_mock([])
+        if name == "alerts":
+            m.execute.return_value.data = []
+
+            def insert(payload):
+                inserted.append(payload)
+                return chain_mock([{"id": "a1"}])
+            m.insert.side_effect = insert
+        elif name == "portfolio":
+            m.execute.return_value.data = [
+                {"user_id": "u1", "asset_symbol": "AAPL"},
+                {"user_id": "u1", "asset_symbol": "MSFT"},
+            ]
+        elif name == "users":
+            m.execute.return_value.data = [{"id": "u1", "notification_preferences": {}}]
+        return m
+
+    db.table.side_effect = t
+    asset_impacts = [
+        {"symbol": "AAPL", "impact": "negative", "severity": 7, "reason": "a"},
+        {"symbol": "MSFT", "impact": "negative", "severity": 9, "reason": "b"},
+        {"symbol": "TSLA", "impact": "negative", "severity": 10, "reason": "not held"},
+    ]
+    count = generate_impact_alerts(db, "article-1", {"u1"}, asset_impacts)
+    assert count == 1
+    assert inserted[0]["asset_symbol"] == "MSFT"
+    assert inserted[0]["severity"] == 9
 
 
 def test_impact_alert_skipped_severity_6():
@@ -120,6 +164,7 @@ def test_volatility_alert_created(mock_ticker):
     mock_ticker.return_value.history.return_value = hist
 
     db = MagicMock()
+    inserted = []
 
     def t(name):
         m = chain_mock([])
@@ -129,13 +174,26 @@ def test_volatility_alert_created(mock_ticker):
             ]
         elif name == "alerts":
             m.execute.return_value.data = []
+
+            def insert(payload):
+                inserted.append(payload)
+                return chain_mock([{"id": "v1"}])
+            m.insert.side_effect = insert
         elif name == "users":
-            m.execute.return_value.data = [{"notification_preferences": {}}]
+            m.execute.return_value.data = [{"id": "u1", "notification_preferences": {}}]
         return m
 
     db.table.side_effect = t
     count = generate_volatility_alerts(db)
-    assert count >= 0
+
+    assert count == 1
+    assert len(inserted) == 1
+    alert = inserted[0]
+    assert alert["user_id"] == "u1"
+    assert alert["asset_symbol"] == "AAPL"
+    assert alert["alert_type"] == "volatility"
+    assert alert["severity"] == 8  # a 10% move maps to severity 8
+    assert alert["message"] == "AAPL moved up 10.0% in 24 hours"
 
 
 @patch("app.services.alert_service.yf.Ticker")
@@ -189,3 +247,32 @@ def test_batch_fetch_fcm_tokens_empty_input():
     db = make_db({})
     result = batch_fetch_fcm_tokens(db, set())
     assert result == {}
+
+
+def test_impact_alert_stores_provider():
+    db = MagicMock()
+    captured = {}
+    call_list = []
+
+    def t(name):
+        m = chain_mock([])
+        if name == "alerts" and not call_list:
+            call_list.append(1)
+            m.execute.return_value.data = []
+        elif name == "alerts":
+            def insert(payload):
+                captured.update(payload)
+                return chain_mock([{"id": "a1"}])
+            m.insert.side_effect = insert
+        elif name == "portfolio":
+            m.execute.return_value.data = [{"user_id": "u1", "asset_symbol": "AAPL"}]
+        elif name == "users":
+            m.execute.return_value.data = [{"id": "u1", "notification_preferences": {}}]
+        return m
+
+    db.table.side_effect = t
+    impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 8, "reason": "bad"}]
+    count = generate_impact_alerts(db, "article-1", {"u1"}, impacts, ai_provider="gemini")
+    assert count == 1
+    assert captured["ai_provider"] == "gemini"
+    assert captured["asset_symbol"] == "AAPL"

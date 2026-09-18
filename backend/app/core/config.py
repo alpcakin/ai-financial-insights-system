@@ -7,8 +7,19 @@ class Settings(BaseSettings):
     supabase_service_key: str
     supabase_anon_key: str
 
-    openai_api_key: str
     mediastack_api_key: str
+
+    # AI providers. A provider is enabled when its API key is set.
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    xai_api_key: str = ""
+    xai_base_url: str = "https://api.x.ai/v1"
+    grok_model: str = "grok-3-mini"
+    # Provider used for new accounts and as the fallback when a user's
+    # chosen provider produced no analysis for an article.
+    default_ai_provider: str = "openai"
 
     news_fetch_interval_minutes: int = 0
     mediastack_page_size: int = 100
@@ -18,6 +29,9 @@ class Settings(BaseSettings):
     firebase_credentials_path: str = "firebase-service-account.json"
 
     resend_api_key: str = ""
+    # Resend's sandbox sender works without a verified domain; replace it
+    # with an address on a verified domain for real deployments.
+    email_from: str = "AI Financial Insights <onboarding@resend.dev>"
     backend_url: str = "http://localhost:8000"
 
     jwt_secret_key: str

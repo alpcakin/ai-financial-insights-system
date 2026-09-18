@@ -35,14 +35,33 @@ class UserRepository {
     throw const UserException('Failed to load profile');
   }
 
+  Future<List<AIProviderInfo>> getAIProviders(String token) async {
+    final response = await http
+        .get(
+          Uri.parse('${AppConstants.baseUrl}/users/ai-providers'),
+          headers: _authHeaders(token),
+        )
+        .timeout(_timeout);
+
+    if (response.statusCode == 200) {
+      final list = _decode(response)['providers'] as List<dynamic>? ?? [];
+      return list
+          .map((e) => AIProviderInfo.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+    throw const UserException('Failed to load AI providers');
+  }
+
   Future<UserProfile> updatePreferences(
     String token, {
     bool? impactAlerts,
     bool? volatilityAlerts,
+    String? aiProvider,
   }) async {
     final body = <String, dynamic>{};
     if (impactAlerts != null) body['impact_alerts'] = impactAlerts;
     if (volatilityAlerts != null) body['volatility_alerts'] = volatilityAlerts;
+    if (aiProvider != null) body['ai_provider'] = aiProvider;
 
     final response = await http
         .patch(
@@ -54,6 +73,10 @@ class UserRepository {
 
     if (response.statusCode == 200) {
       return UserProfile.fromJson(_decode(response));
+    }
+    if (response.statusCode == 400) {
+      final detail = _decode(response)['detail'];
+      throw UserException(detail is String ? detail : 'Invalid preferences');
     }
     throw const UserException('Failed to update preferences');
   }

@@ -29,7 +29,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
             ),
             _section(
               'How We Use Your Data',
-              'Your portfolio data is used to match relevant financial news and generate alerts when assets in your portfolio experience significant market events. We do not sell your data to third parties.',
+              'Your portfolio data is used to match relevant financial news and generate alerts when assets in your portfolio experience significant market events. We do not sell your data to third parties.\n\nNews articles are analyzed by third-party AI services (OpenAI, Google Gemini and xAI Grok, depending on the model you select). Only the article text and the combined list of asset symbols held across all users are sent to these services. Your email address, holdings, quantities and prices are never shared with them.',
             ),
             _section(
               'Data Storage',

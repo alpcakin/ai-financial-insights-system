@@ -15,6 +15,7 @@ def generate_impact_alerts(
     article_id: str,
     user_ids: set[str],
     asset_impacts: list[dict],
+    ai_provider: str | None = None,
 ) -> int:
     if not asset_impacts or not user_ids:
         return 0
@@ -70,6 +71,7 @@ def generate_impact_alerts(
                 "alert_type": "impact",
                 "severity": top.get("severity", 7),
                 "message": message,
+                "ai_provider": ai_provider,
             }).execute()
 
             if insert.data:

@@ -8,17 +8,16 @@ venv/
 *.egg-info/
 dist/
 
-# IDE
+# IDE and local tooling
 .idea/
 .vscode/
-.claude/
-CLAUDE.md
-LIMITATIONS.md
-DESIGN_DECISIONS.md
-STARTUP_GUIDE.md
-TODO.md
-AI_MODEL_SELECTION_PLAN.md
-DEFENSE_PREP.md
-dev_start.bat
+.*/
+!.gitignore
+
+# Personal working notes (kept out of the repository)
+/*.md
+!/README.md
+!/schedule.md
+*.bat
 firebase-service-account.json
 mobile/android/app/google-services.json

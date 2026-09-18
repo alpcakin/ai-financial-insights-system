@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/models/news_models.dart';
+import '../../widgets/ai_provider_badge.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/news_provider.dart';
 import '../topics/topics_screen.dart';
@@ -311,6 +312,13 @@ class _ArticleCard extends StatelessWidget {
                     _timeAgo(),
                     style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8)),
                   ),
+                  if (article.analyzedByName != null) ...[
+                    const SizedBox(width: 8),
+                    AiProviderBadge(
+                      name: article.analyzedByName,
+                      isFallback: article.isFallback,
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 10),
@@ -475,6 +483,34 @@ class _ArticleDetailSheet extends StatelessWidget {
               ].join(' · '),
               style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
             ),
+            if (article.analyzedByName != null) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Text(
+                    'Analyzed by',
+                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
+                  ),
+                  const SizedBox(width: 6),
+                  AiProviderBadge(
+                    name: article.analyzedByName,
+                    isFallback: article.isFallback,
+                    fontSize: 11,
+                  ),
+                ],
+              ),
+              if (article.isFallback) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Your chosen model had no analysis for this article, so another model\'s view is shown.',
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    color: const Color(0xFFB45309),
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ],
             if (article.summary != null) ...[
               const SizedBox(height: 18),
               Text(

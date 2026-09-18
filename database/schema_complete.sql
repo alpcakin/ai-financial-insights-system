@@ -20,6 +20,11 @@ CREATE TABLE users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     notification_preferences JSONB DEFAULT '{}',
+    email_verified BOOLEAN DEFAULT FALSE,
+    email_verification_token TEXT,
+    password_reset_token TEXT,
+    password_reset_expires_at TIMESTAMPTZ,
+    ai_provider TEXT NOT NULL DEFAULT 'openai',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -68,19 +73,34 @@ CREATE TABLE articles (
     title TEXT NOT NULL,
     url TEXT UNIQUE NOT NULL,
     source TEXT,
+    published_at TIMESTAMPTZ,
+    processed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- One row per (article, AI provider). The pipeline runs every enabled
+-- provider on each article; users are served the row of their chosen one.
+CREATE TABLE article_analyses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    article_id UUID NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    model TEXT,
     summary TEXT,
     sentiment_label TEXT CHECK (sentiment_label IN ('positive', 'negative', 'neutral')),
     severity SMALLINT CHECK (severity BETWEEN 1 AND 10),
     related_categories TEXT[] DEFAULT '{}',
     related_assets TEXT[] DEFAULT '{}',
-    published_at TIMESTAMPTZ,
-    processed_at TIMESTAMPTZ DEFAULT NOW()
+    asset_impacts JSONB DEFAULT '[]',
+    raw_response TEXT,
+    latency_ms INTEGER,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT article_analyses_article_id_provider_key UNIQUE (article_id, provider)
 );
 
 CREATE TABLE user_news_feed (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     article_id UUID NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+    analysis_id UUID REFERENCES article_analyses(id) ON DELETE SET NULL,
     read BOOLEAN DEFAULT FALSE,
     bookmarked BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -96,7 +116,17 @@ CREATE TABLE alerts (
     severity SMALLINT CHECK (severity BETWEEN 1 AND 10),
     message TEXT,
     notification_sent BOOLEAN DEFAULT FALSE,
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    ai_provider TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE refresh_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE reports (
@@ -114,11 +144,23 @@ CREATE TABLE reports (
 -- Indexes
 -- -----------------------------------------------------------------------------
 
-CREATE INDEX idx_articles_related_assets ON articles USING GIN (related_assets);
-CREATE INDEX idx_articles_related_categories ON articles USING GIN (related_categories);
 CREATE INDEX idx_articles_published_at ON articles (published_at DESC);
+CREATE INDEX idx_article_analyses_article ON article_analyses (article_id);
+CREATE INDEX idx_article_analyses_related_assets ON article_analyses USING GIN (related_assets);
+CREATE INDEX idx_article_analyses_related_categories ON article_analyses USING GIN (related_categories);
+CREATE INDEX idx_article_analyses_provider ON article_analyses (provider);
 CREATE INDEX idx_user_news_feed_user_created ON user_news_feed (user_id, created_at DESC);
+CREATE INDEX idx_user_news_feed_analysis ON user_news_feed (analysis_id);
 CREATE INDEX idx_alerts_user_created ON alerts (user_id, created_at DESC);
+CREATE INDEX idx_alerts_user_symbol_type_created ON alerts (user_id, alert_type, asset_symbol, created_at DESC);
+CREATE INDEX idx_alerts_user_unread ON alerts (user_id, is_read) WHERE is_read = FALSE;
+CREATE INDEX idx_categories_level ON categories (level);
+CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens (user_id);
+CREATE INDEX idx_users_password_reset_token ON users (password_reset_token);
+CREATE INDEX idx_alerts_article ON alerts (article_id);
+CREATE INDEX idx_categories_parent ON categories (parent_id);
+CREATE INDEX idx_followed_topics_category ON followed_topics (category_id);
+CREATE INDEX idx_user_news_feed_article ON user_news_feed (article_id);
 CREATE INDEX idx_reports_user_generated ON reports (user_id, generated_at DESC);
 CREATE INDEX idx_watchlist_user ON watchlist (user_id);
 
@@ -127,34 +169,41 @@ CREATE INDEX idx_watchlist_user ON watchlist (user_id);
 -- Row Level Security
 -- -----------------------------------------------------------------------------
 
+-- articles, categories and article_analyses are reached only through the
+-- backend's service role, so RLS is on with no policies for them.
+ALTER TABLE articles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE article_analyses ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE portfolio ENABLE ROW LEVEL SECURITY;
 ALTER TABLE watchlist ENABLE ROW LEVEL SECURITY;
 ALTER TABLE followed_topics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_news_feed ENABLE ROW LEVEL SECURITY;
+ALTER TABLE refresh_tokens ENABLE ROW LEVEL SECURITY;
 ALTER TABLE alerts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY users_self ON users
-    FOR ALL USING (auth.uid() = id);
+    FOR ALL USING ((SELECT auth.uid()) = id);
 
 CREATE POLICY portfolio_owner ON portfolio
-    FOR ALL USING (auth.uid() = user_id);
+    FOR ALL USING ((SELECT auth.uid()) = user_id);
 
 CREATE POLICY watchlist_owner ON watchlist
-    FOR ALL USING (auth.uid() = user_id);
+    FOR ALL USING ((SELECT auth.uid()) = user_id);
 
 CREATE POLICY followed_topics_owner ON followed_topics
-    FOR ALL USING (auth.uid() = user_id);
+    FOR ALL USING ((SELECT auth.uid()) = user_id);
 
 CREATE POLICY user_news_feed_owner ON user_news_feed
-    FOR ALL USING (auth.uid() = user_id);
+    FOR ALL USING ((SELECT auth.uid()) = user_id);
 
 CREATE POLICY alerts_owner ON alerts
-    FOR ALL USING (auth.uid() = user_id);
+    FOR ALL USING ((SELECT auth.uid()) = user_id);
 
 CREATE POLICY reports_owner ON reports
-    FOR ALL USING (auth.uid() = user_id);
+    FOR ALL USING ((SELECT auth.uid()) = user_id);
 
 
 -- -----------------------------------------------------------------------------

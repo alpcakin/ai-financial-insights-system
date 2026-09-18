@@ -13,6 +13,7 @@ class AlertResponse(BaseModel):
     message: str | None
     notification_sent: bool
     is_read: bool = False
+    ai_provider: str | None = None
     created_at: str
 
 

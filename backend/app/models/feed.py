@@ -21,6 +21,9 @@ class FeedArticle(BaseModel):
     related_assets: list[str] | None
     asset_impacts: list[Any] | None
     published_at: str | None
+    analyzed_by: str | None = None
+    analyzed_by_name: str | None = None
+    is_fallback: bool = False
     read: bool
     bookmarked: bool
 

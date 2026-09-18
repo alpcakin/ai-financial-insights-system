@@ -1215,7 +1215,10 @@ class _CompactAlertRow extends StatelessWidget {
                   ),
                 const SizedBox(height: 2),
                 Text(
-                  _timeAgo(),
+                  [
+                    _timeAgo(),
+                    if (alert.aiProviderName != null) alert.aiProviderName!,
+                  ].join(' · '),
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     color: const Color(0xFF94A3B8),

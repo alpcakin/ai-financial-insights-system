@@ -27,7 +27,7 @@ def _send_verification_email(to_email: str, token: str) -> None:
     resend.api_key = settings.resend_api_key
     try:
         resend.Emails.send({
-            "from": "AI Financial Insights <onboarding@resend.dev>",
+            "from": settings.email_from,
             "to": [to_email],
             "subject": "Verify your email address",
             "html": (
@@ -47,7 +47,7 @@ def _send_password_reset_email(to_email: str, token: str) -> None:
     resend.api_key = settings.resend_api_key
     try:
         resend.Emails.send({
-            "from": "AI Financial Insights <onboarding@resend.dev>",
+            "from": settings.email_from,
             "to": [to_email],
             "subject": "Reset your password",
             "html": (
