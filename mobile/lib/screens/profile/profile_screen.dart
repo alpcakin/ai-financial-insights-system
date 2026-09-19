@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../data/models/user_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/user_provider.dart';
 import '../privacy/privacy_policy_screen.dart';
@@ -18,6 +19,19 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool? _volatilityOverride;
   bool _updatingImpact = false;
   bool _updatingVolatility = false;
+  bool _updatingProvider = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      if (!mounted) return;
+      if (ref.read(userProvider).providers.isEmpty) {
+        final token = ref.read(authProvider).token ?? '';
+        ref.read(userProvider.notifier).loadProviders(token);
+      }
+    });
+  }
 
   String _initials(String? email) {
     if (email == null || email.isEmpty) return '?';
@@ -57,6 +71,55 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       }
     }
     if (mounted) setState(() { _volatilityOverride = null; _updatingVolatility = false; });
+  }
+
+  Future<void> _selectProvider(String name) async {
+    if (name == ref.read(userProvider).profile?.aiProvider) return;
+    setState(() => _updatingProvider = true);
+    try {
+      final token = ref.read(authProvider).token ?? '';
+      await ref.read(userProvider.notifier).updatePreferences(token, aiProvider: name);
+    } on UserException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update AI model')),
+        );
+      }
+    }
+    if (mounted) setState(() => _updatingProvider = false);
+  }
+
+  Future<void> _showProviderSheet() async {
+    var providers = ref.read(userProvider).providers;
+    if (providers.isEmpty) {
+      final token = ref.read(authProvider).token ?? '';
+      await ref.read(userProvider.notifier).loadProviders(token);
+      providers = ref.read(userProvider).providers;
+    }
+    if (!mounted) return;
+    if (providers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load available AI models')),
+      );
+      return;
+    }
+
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _ProviderSheet(
+        providers: providers,
+        selected: ref.read(userProvider).profile?.aiProvider,
+      ),
+    );
+    if (selected != null) await _selectProvider(selected);
   }
 
   void _openPrivacyPolicy() {
@@ -143,6 +206,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     final impactValue = _impactOverride ?? prefs?.impactAlerts ?? true;
     final volatilityValue = _volatilityOverride ?? prefs?.volatilityAlerts ?? true;
+    final currentProvider = userState.currentProvider;
+    final providerLabel = currentProvider?.displayName ??
+        userState.profile?.aiProvider ??
+        'Default';
 
     return Scaffold(
       appBar: AppBar(
@@ -223,6 +290,43 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 onChanged: _updatingVolatility ? null : _toggleVolatility,
                 activeThumbColor: const Color(0xFF0F172A),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+            _SectionHeader(title: 'AI Analysis'),
+
+            _SettingsTile(
+              child: ListTile(
+                title: Text('Analysis model',
+                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500)),
+                subtitle: Text(
+                  currentProvider != null
+                      ? '$providerLabel · ${currentProvider.model}'
+                      : providerLabel,
+                  style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                ),
+                trailing: _updatingProvider
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
+                onTap: _updatingProvider ? null : _showProviderSheet,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+              child: Text(
+                'Every article is analyzed by all available models. Your feed and alerts '
+                'show the view of the model you pick here; if it has no result for an '
+                'article, another model\'s analysis is shown and marked.',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  color: const Color(0xFF94A3B8),
+                  height: 1.4,
+                ),
               ),
             ),
 
@@ -329,6 +433,88 @@ class _SettingsTile extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: child,
+    );
+  }
+}
+
+// ── AI Provider Sheet ────────────────────────────────────────────────────────
+
+class _ProviderSheet extends StatelessWidget {
+  final List<AIProviderInfo> providers;
+  final String? selected;
+
+  const _ProviderSheet({required this.providers, required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Analysis model',
+              style: GoogleFonts.inter(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF0F172A),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Choose which AI model\'s analysis you want to see.',
+              style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 12),
+            ...providers.map(
+              (p) => ListTile(
+                onTap: () => Navigator.pop(context, p.name),
+                contentPadding: EdgeInsets.zero,
+                trailing: Icon(
+                  p.name == selected
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_off_rounded,
+                  color: p.name == selected
+                      ? const Color(0xFF0F172A)
+                      : const Color(0xFFCBD5E1),
+                ),
+                title: Row(
+                  children: [
+                    Text(
+                      p.displayName,
+                      style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    if (p.isDefault) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'Default',
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                subtitle: Text(
+                  p.model,
+                  style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

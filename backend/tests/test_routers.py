@@ -291,6 +291,34 @@ def test_update_me_200(client, mock_db):
     mock_db.table.side_effect = lambda _: chain_mock([])
     r = client.patch("/users/me", json={"impact_alerts": False})
     assert r.status_code == 200
+    assert r.json()["ai_provider"] == "openai"
+
+
+def test_update_me_ai_provider_200(client, mock_db, registry):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = client.patch("/users/me", json={"ai_provider": "grok"})
+    assert r.status_code == 200
+    assert r.json()["ai_provider"] == "grok"
+
+
+def test_update_me_ai_provider_400_unknown(client, mock_db, registry):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = client.patch("/users/me", json={"ai_provider": "mistral"})
+    assert r.status_code == 400
+
+
+def test_get_ai_providers_200(client, registry):
+    r = client.get("/users/ai-providers")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["default"] == "openai"
+    assert [p["name"] for p in body["providers"]] == ["openai", "gemini", "grok"]
+    assert {"name", "display_name", "model", "is_default"} <= set(body["providers"][0])
+
+
+def test_get_ai_providers_401_without_token(auth_client):
+    r = auth_client.get("/users/ai-providers")
+    assert r.status_code in (401, 403)
 
 
 def test_change_password_router_200(client, mock_db):

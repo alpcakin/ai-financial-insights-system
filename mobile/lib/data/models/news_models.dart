@@ -31,6 +31,15 @@ class FeedArticle {
   final List<String> relatedAssets;
   final List<AssetImpact> assetImpacts;
   final String? publishedAt;
+
+  /// Key of the AI provider that produced the shown analysis, e.g. "gemini".
+  final String? analyzedBy;
+
+  /// Human readable name of that provider, e.g. "Gemini".
+  final String? analyzedByName;
+
+  /// True when the user's chosen provider had no analysis and another was used.
+  final bool isFallback;
   final bool read;
   final bool bookmarked;
 
@@ -46,6 +55,9 @@ class FeedArticle {
     required this.relatedAssets,
     required this.assetImpacts,
     this.publishedAt,
+    this.analyzedBy,
+    this.analyzedByName,
+    this.isFallback = false,
     required this.read,
     required this.bookmarked,
   });
@@ -62,6 +74,9 @@ class FeedArticle {
         relatedAssets: relatedAssets,
         assetImpacts: assetImpacts,
         publishedAt: publishedAt,
+        analyzedBy: analyzedBy,
+        analyzedByName: analyzedByName,
+        isFallback: isFallback,
         read: read ?? this.read,
         bookmarked: bookmarked,
       );
@@ -91,6 +106,9 @@ class FeedArticle {
       relatedAssets: toStringList(json['related_assets']),
       assetImpacts: toImpacts(json['asset_impacts']),
       publishedAt: json['published_at'] as String?,
+      analyzedBy: json['analyzed_by'] as String?,
+      analyzedByName: json['analyzed_by_name'] as String?,
+      isFallback: json['is_fallback'] as bool? ?? false,
       read: json['read'] as bool? ?? false,
       bookmarked: json['bookmarked'] as bool? ?? false,
     );

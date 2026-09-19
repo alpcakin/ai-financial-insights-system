@@ -7,12 +7,14 @@ final userRepositoryProvider = Provider<UserRepository>((_) => UserRepository())
 
 class UserState {
   final UserProfile? profile;
+  final List<AIProviderInfo> providers;
   final bool isLoading;
   final bool isUpdating;
   final String? error;
 
   const UserState({
     this.profile,
+    this.providers = const [],
     this.isLoading = false,
     this.isUpdating = false,
     this.error,
@@ -20,6 +22,7 @@ class UserState {
 
   UserState copyWith({
     UserProfile? profile,
+    List<AIProviderInfo>? providers,
     bool? isLoading,
     bool? isUpdating,
     String? error,
@@ -27,10 +30,21 @@ class UserState {
   }) =>
       UserState(
         profile: profile ?? this.profile,
+        providers: providers ?? this.providers,
         isLoading: isLoading ?? this.isLoading,
         isUpdating: isUpdating ?? this.isUpdating,
         error: clearError ? null : error ?? this.error,
       );
+
+  /// Details of the provider the user is currently served by, if listed.
+  AIProviderInfo? get currentProvider {
+    final key = profile?.aiProvider;
+    if (key == null) return null;
+    for (final p in providers) {
+      if (p.name == key) return p;
+    }
+    return null;
+  }
 }
 
 class UserNotifier extends StateNotifier<UserState> {
@@ -50,10 +64,20 @@ class UserNotifier extends StateNotifier<UserState> {
     }
   }
 
+  Future<void> loadProviders(String token) async {
+    try {
+      final providers = await _repository.getAIProviders(token);
+      state = state.copyWith(providers: providers);
+    } catch (_) {
+      // The picker simply stays empty; the profile still renders.
+    }
+  }
+
   Future<void> updatePreferences(
     String token, {
     bool? impactAlerts,
     bool? volatilityAlerts,
+    String? aiProvider,
   }) async {
     state = state.copyWith(isUpdating: true, clearError: true);
     try {
@@ -61,6 +85,7 @@ class UserNotifier extends StateNotifier<UserState> {
         token,
         impactAlerts: impactAlerts,
         volatilityAlerts: volatilityAlerts,
+        aiProvider: aiProvider,
       );
       state = state.copyWith(profile: updated, isUpdating: false);
     } on UserException catch (e) {

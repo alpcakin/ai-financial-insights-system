@@ -46,12 +46,26 @@ class UserProfileResponse(BaseModel):
     id: str
     email: str
     notification_preferences: NotificationPreferences
+    ai_provider: str
     created_at: str
 
 
 class UpdatePreferencesRequest(BaseModel):
     impact_alerts: bool | None = None
     volatility_alerts: bool | None = None
+    ai_provider: Annotated[str, StringConstraints(min_length=1, max_length=32)] | None = None
+
+
+class AIProviderInfo(BaseModel):
+    name: str
+    display_name: str
+    model: str
+    is_default: bool
+
+
+class AIProvidersResponse(BaseModel):
+    providers: list[AIProviderInfo]
+    default: str | None
 
 
 class ChangePasswordRequest(BaseModel):

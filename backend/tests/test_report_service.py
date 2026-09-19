@@ -85,7 +85,24 @@ def test_get_reports_returns_list():
     db.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = [EXISTING_REPORT]
     db.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.count = 1
     result = get_reports(db, "u1", 10, 0)
-    assert result["total"] >= 0
+    assert result["total"] == 1
+    assert result["offset"] == 0 and result["limit"] == 10
+    assert len(result["reports"]) == 1
+    report = result["reports"][0]
+    assert report["id"] == "r1"
+    assert report["report_type"] == "weekly"
+    assert report["period_start"] == "2026-04-21"
+    # content is stored as a JSON string and returned decoded
+    assert report["content"]["total_change_pct"] == 0.0
+
+
+def test_get_reports_tolerates_malformed_content():
+    db = MagicMock()
+    broken = {**EXISTING_REPORT, "content": "{not json"}
+    db.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.data = [broken]
+    db.table.return_value.select.return_value.eq.return_value.order.return_value.range.return_value.execute.return_value.count = 1
+    result = get_reports(db, "u1", 10, 0)
+    assert result["reports"][0]["content"] is None
 
 
 def test_get_report_not_found():

@@ -8,6 +8,9 @@ class AlertItem {
   final String? message;
   final bool notificationSent;
   final bool isRead;
+
+  /// Key of the AI provider whose analysis raised this alert (impact alerts only).
+  final String? aiProvider;
   final String createdAt;
 
   const AlertItem({
@@ -20,8 +23,25 @@ class AlertItem {
     this.message,
     required this.notificationSent,
     this.isRead = false,
+    this.aiProvider,
     required this.createdAt,
   });
+
+  /// Display label for [aiProvider], mirroring the backend's names.
+  String? get aiProviderName {
+    switch (aiProvider) {
+      case null:
+        return null;
+      case 'openai':
+        return 'GPT-4o mini';
+      case 'gemini':
+        return 'Gemini';
+      case 'grok':
+        return 'Grok';
+      default:
+        return aiProvider;
+    }
+  }
 
   factory AlertItem.fromJson(Map<String, dynamic> json) => AlertItem(
         id: json['id'] as String,
@@ -33,6 +53,7 @@ class AlertItem {
         message: json['message'] as String?,
         notificationSent: json['notification_sent'] as bool? ?? false,
         isRead: json['is_read'] as bool? ?? false,
+        aiProvider: json['ai_provider'] as String?,
         createdAt: json['created_at'] as String,
       );
 }

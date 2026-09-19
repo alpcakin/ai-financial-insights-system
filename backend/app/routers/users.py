@@ -3,12 +3,18 @@ from supabase import Client
 
 from app.core.database import get_db
 from app.dependencies import get_current_user
-from app.models.user import ChangePasswordRequest, UpdatePreferencesRequest, UserProfileResponse
+from app.models.user import (
+    AIProvidersResponse,
+    ChangePasswordRequest,
+    UpdatePreferencesRequest,
+    UserProfileResponse,
+)
 from app.services.user_service import (
     change_password,
     delete_account,
     export_user_data,
     get_user_profile,
+    list_ai_providers,
     update_preferences,
 )
 
@@ -27,6 +33,12 @@ def update_me(
     db: Client = Depends(get_db),
 ):
     return update_preferences(db, current_user, request)
+
+
+@router.get("/ai-providers", response_model=AIProvidersResponse)
+def get_ai_providers(current_user: dict = Depends(get_current_user)):
+    """Providers the user can pick from in the app."""
+    return list_ai_providers()
 
 
 @router.patch("/me/password", status_code=status.HTTP_200_OK)

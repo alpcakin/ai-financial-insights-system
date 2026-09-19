@@ -3,6 +3,7 @@ from supabase import Client
 
 from app.core.security import hash_password, verify_password
 from app.models.user import UpdatePreferencesRequest
+from app.services.ai import get_registry
 
 
 def _parse_prefs(raw: dict | None) -> dict:
@@ -14,12 +15,23 @@ def _parse_prefs(raw: dict | None) -> dict:
     }
 
 
+def effective_provider(user: dict) -> str:
+    """The provider a user should be served by: their choice when it is
+    still enabled, otherwise the system default."""
+    registry = get_registry()
+    provider = registry.resolve(user.get("ai_provider"))
+    if provider is not None:
+        return provider.name
+    return user.get("ai_provider") or "openai"
+
+
 def get_user_profile(user: dict) -> dict:
     return {
         "id": user["id"],
         "email": user["email"],
         "created_at": user["created_at"],
         "notification_preferences": _parse_prefs(user.get("notification_preferences")),
+        "ai_provider": effective_provider(user),
     }
 
 
@@ -31,10 +43,29 @@ def update_preferences(db: Client, user: dict, request: UpdatePreferencesRequest
     if request.volatility_alerts is not None:
         prefs["volatility_alerts"] = request.volatility_alerts
 
-    db.table("users").update({"notification_preferences": prefs}).eq("id", user["id"]).execute()
+    updates: dict = {"notification_preferences": prefs}
 
-    updated_user = {**user, "notification_preferences": prefs}
+    if request.ai_provider is not None:
+        registry = get_registry()
+        if not registry.has(request.ai_provider):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown AI provider '{request.ai_provider}'. Available: {', '.join(registry.names())}",
+            )
+        updates["ai_provider"] = request.ai_provider
+
+    db.table("users").update(updates).eq("id", user["id"]).execute()
+
+    updated_user = {**user, **updates}
     return get_user_profile(updated_user)
+
+
+def list_ai_providers() -> dict:
+    registry = get_registry()
+    return {
+        "providers": registry.infos(),
+        "default": registry.default.name if registry.default else None,
+    }
 
 
 def change_password(db: Client, user_id: str, current_password: str, new_password: str) -> None:
@@ -67,6 +98,7 @@ def export_user_data(db: Client, user: dict) -> dict:
             "id": user["id"],
             "email": user["email"],
             "created_at": user.get("created_at"),
+            "ai_provider": user.get("ai_provider"),
         },
         "portfolio": portfolio.data,
         "watchlist": watchlist.data,

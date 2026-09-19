@@ -23,6 +23,9 @@ async def lifespan(app: FastAPI):
     from app.tasks.news_tasks import process_news_cycle
     from app.tasks.report_tasks import generate_weekly_reports
     from app.services.alert_service import generate_volatility_alerts
+    from app.services.ai import get_registry
+
+    get_registry()
 
     scheduler = BackgroundScheduler()
 
@@ -67,6 +70,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AI Financial Insights API", version="1.0.0", lifespan=lifespan)
 
+# The only client is the native Android app, which is not subject to the
+# browser same-origin policy, so CORS is left open. Restrict allow_origins
+# before serving a web client from this API.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
