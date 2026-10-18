@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 3
 
+#: Seconds to wait before retrying a transient provider error; doubles on each retry.
+RETRY_BASE_DELAY = 5
+
 #: Articles whose overall severity is at or below this are not shown to users.
 MIN_SEVERITY = 4
 
@@ -135,6 +138,14 @@ def analyze_article(
         except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
             logger.warning("[%s] attempt %d returned malformed output: %s", provider.name, attempt, e)
         except Exception as e:
+            if attempt < MAX_ATTEMPTS and provider.is_transient(e):
+                delay = RETRY_BASE_DELAY * 2 ** (attempt - 1)
+                logger.warning(
+                    "[%s] attempt %d hit a transient error, retrying in %ds: %s",
+                    provider.name, attempt, delay, e,
+                )
+                time.sleep(delay)
+                continue
             logger.error("[%s] unexpected error on attempt %d: %s", provider.name, attempt, e)
             break
 

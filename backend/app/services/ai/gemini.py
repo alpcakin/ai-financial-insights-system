@@ -1,3 +1,5 @@
+import requests
+
 from app.services.ai.base import AIProvider
 
 
@@ -38,3 +40,10 @@ class GeminiProvider(AIProvider):
             ),
         )
         return (response.text or "").strip()
+
+    def is_transient(self, error: Exception) -> bool:
+        from google.genai import errors
+
+        if isinstance(error, (errors.ServerError, requests.ConnectionError, requests.Timeout)):
+            return True
+        return isinstance(error, errors.ClientError) and error.code == 429

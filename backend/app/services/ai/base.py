@@ -40,6 +40,14 @@ class AIProvider(ABC):
         validate the result themselves.
         """
 
+    def is_transient(self, error: Exception) -> bool:
+        """Whether a failed ``complete`` call is worth retrying after a pause.
+
+        True for rate limits and temporary server or network failures.
+        Providers whose SDK already retries these on its own keep the default.
+        """
+        return False
+
     def info(self) -> ProviderInfo:
         return ProviderInfo(name=self.name, display_name=self.display_name, model=self.model)
 

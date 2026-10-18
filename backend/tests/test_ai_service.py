@@ -2,7 +2,9 @@ import json
 
 from app.services.ai import ProviderRegistry, set_registry
 from app.services.ai_service import (
+    MAX_ATTEMPTS,
     MIN_SEVERITY,
+    RETRY_BASE_DELAY,
     _validate_response,
     analyze_article,
     analyze_article_all,
@@ -84,6 +86,30 @@ def test_analyze_unexpected_exception_stops_immediately():
     result = analyze_article("Title", "Description", ASSET_POOL, CATEGORY_LIST, provider)
     assert result is None
     assert provider.calls == 1
+
+
+def test_analyze_retries_transient_error_with_backoff(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr("app.services.ai_service.time.sleep", sleeps.append)
+    provider = FakeProvider(
+        "gemini",
+        [TimeoutError("rate limited"), TimeoutError("rate limited"), json.dumps(VALID_RESPONSE)],
+        transient=(TimeoutError,),
+    )
+    result = analyze_article("Title", "Description", ASSET_POOL, CATEGORY_LIST, provider)
+    assert result is not None
+    assert provider.calls == 3
+    assert sleeps == [RETRY_BASE_DELAY, RETRY_BASE_DELAY * 2]
+
+
+def test_analyze_gives_up_after_max_transient_errors(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr("app.services.ai_service.time.sleep", sleeps.append)
+    provider = FakeProvider("gemini", error=TimeoutError("overloaded"), transient=(TimeoutError,))
+    result = analyze_article("Title", "Description", ASSET_POOL, CATEGORY_LIST, provider)
+    assert result is None
+    assert provider.calls == MAX_ATTEMPTS
+    assert len(sleeps) == MAX_ATTEMPTS - 1
 
 
 def test_analyze_all_returns_only_successful_providers():

@@ -1,9 +1,11 @@
+import json
 import sys
 import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from app.services.ai import ProviderRegistry, build_registry, display_name_for, set_registry
 from app.services.ai.gemini import GeminiProvider
@@ -55,7 +57,7 @@ def test_registry_infos_marks_default():
 def _settings(**overrides):
     base = dict(
         openai_api_key="", openai_model="gpt-4o-mini",
-        gemini_api_key="", gemini_model="gemini-2.5-flash",
+        gemini_api_key="", gemini_model="gemini-3.8-flash",
         xai_api_key="", xai_base_url="https://api.x.ai/v1", grok_model="grok-3-mini",
         default_ai_provider="openai",
     )
@@ -148,7 +150,7 @@ def test_gemini_calls_generate_content_with_json_mime():
     fake_google = types.ModuleType("google")
     fake_google.genai = fake_genai
 
-    provider = GeminiProvider(api_key="k", model="gemini-2.5-flash")
+    provider = GeminiProvider(api_key="k", model="gemini-3.8-flash")
     client = MagicMock()
     client.models.generate_content.return_value.text = ' {"b": 2} '
     provider._client = client
@@ -158,10 +160,41 @@ def test_gemini_calls_generate_content_with_json_mime():
 
     assert out == '{"b": 2}'
     kwargs = client.models.generate_content.call_args.kwargs
-    assert kwargs["model"] == "gemini-2.5-flash"
+    assert kwargs["model"] == "gemini-3.8-flash"
     assert kwargs["contents"] == "user"
     assert kwargs["config"]["system_instruction"] == "sys"
     assert kwargs["config"]["response_mime_type"] == "application/json"
+
+
+def _genai_error(error_class, code):
+    response = requests.Response()
+    response.status_code = code
+    response._content = json.dumps({"error": {"code": code, "status": "ERROR", "message": "m"}}).encode()
+    return error_class(code, response)
+
+
+def test_gemini_retries_rate_limits_and_outages():
+    from google.genai import errors
+
+    provider = GeminiProvider(api_key="k", model="m")
+    assert provider.is_transient(_genai_error(errors.ClientError, 429))
+    assert provider.is_transient(_genai_error(errors.ServerError, 503))
+    assert provider.is_transient(requests.ConnectionError())
+    assert provider.is_transient(requests.Timeout())
+
+
+def test_gemini_does_not_retry_permanent_errors():
+    from google.genai import errors
+
+    provider = GeminiProvider(api_key="k", model="m")
+    assert not provider.is_transient(_genai_error(errors.ClientError, 404))
+    assert not provider.is_transient(_genai_error(errors.ClientError, 400))
+    assert not provider.is_transient(ValueError("bad"))
+
+
+def test_openai_compatible_leaves_retries_to_its_sdk():
+    provider = OpenAICompatibleProvider("openai", "GPT", "gpt-4o-mini", api_key="k")
+    assert not provider.is_transient(RuntimeError("429"))
 
 
 def test_gemini_defaults():

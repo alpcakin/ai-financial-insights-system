@@ -146,12 +146,12 @@ void main() {
       final info = AIProviderInfo.fromJson({
         'name': 'gemini',
         'display_name': 'Gemini',
-        'model': 'gemini-2.5-flash',
+        'model': 'gemini-3.8-flash',
         'is_default': false,
       });
       expect(info.name, 'gemini');
       expect(info.displayName, 'Gemini');
-      expect(info.model, 'gemini-2.5-flash');
+      expect(info.model, 'gemini-3.8-flash');
       expect(info.isDefault, isFalse);
     });
   });

@@ -39,11 +39,15 @@ FAKE_USER = {
 class FakeProvider(AIProvider):
     """Provider whose responses are scripted, for pipeline tests."""
 
-    def __init__(self, name="openai", responses=None, error=None, display_name=None, model="fake-model"):
+    def __init__(self, name="openai", responses=None, error=None, display_name=None, model="fake-model", transient=()):
         super().__init__(name, display_name or name.capitalize(), model)
         self.responses = list(responses or [])
         self.error = error
+        self.transient = transient
         self.calls = 0
+
+    def is_transient(self, error):
+        return isinstance(error, self.transient)
 
     def complete(self, system_prompt, user_prompt):
         self.calls += 1

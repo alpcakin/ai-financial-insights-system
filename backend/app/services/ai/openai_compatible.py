@@ -9,6 +9,9 @@ class OpenAICompatibleProvider(AIProvider):
     Used for OpenAI itself and for xAI's Grok, which exposes the same
     protocol at a different base URL. Vendors that differ only by endpoint
     and model name can be added with a single line in the registry.
+
+    The OpenAI SDK already retries rate limits and server errors with
+    backoff, so ``is_transient`` keeps its default.
     """
 
     def __init__(

@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.8-flash"
     xai_api_key: str = ""
     xai_base_url: str = "https://api.x.ai/v1"
     grok_model: str = "grok-3-mini"
