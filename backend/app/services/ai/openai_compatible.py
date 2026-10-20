@@ -26,17 +26,19 @@ class OpenAICompatibleProvider(AIProvider):
         base_url: str | None = None,
         temperature: float = 0.3,
         reasoning_effort: str | None = None,
+        timeout: float = 60,
     ) -> None:
         super().__init__(name, display_name, model)
         self._api_key = api_key
         self._base_url = base_url
         self._temperature = temperature
         self._reasoning_effort = reasoning_effort
+        self._timeout = timeout
         self._client: OpenAI | None = None
 
     def _get_client(self) -> OpenAI:
         if self._client is None:
-            self._client = OpenAI(api_key=self._api_key, base_url=self._base_url)
+            self._client = OpenAI(api_key=self._api_key, base_url=self._base_url, timeout=self._timeout)
         return self._client
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:

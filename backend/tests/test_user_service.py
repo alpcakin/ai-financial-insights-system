@@ -189,6 +189,21 @@ def test_list_ai_providers(registry):
     assert result["providers"][0]["is_default"] is True
 
 
+def test_export_selects_existing_topic_columns():
+    db = make_db({})
+    tables = {}
+
+    def table(name):
+        m = chain_mock([])
+        tables[name] = m
+        return m
+
+    db.table.side_effect = table
+    export_user_data(db, _USER)
+    # followed_topics has created_at, not followed_at (001_initial_schema.sql)
+    assert tables["followed_topics"].select.call_args.args[0] == "category_id, source, created_at"
+
+
 def test_export_includes_ai_provider():
     db = make_db({})
     db.table.side_effect = lambda _: chain_mock([])

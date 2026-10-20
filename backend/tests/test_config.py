@@ -12,4 +12,6 @@ def test_tests_never_see_real_api_keys():
 def test_new_defaults():
     assert settings.openai_model == "gpt-6-luna"
     assert settings.openai_reasoning_effort == "low"
+    assert settings.gemini_thinking_level == "low"
     assert settings.retention_days == 30
+    assert settings.ai_request_timeout_seconds == 60

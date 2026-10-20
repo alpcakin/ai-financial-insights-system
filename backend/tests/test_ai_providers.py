@@ -1,11 +1,10 @@
-import json
 import sys
 import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
-import requests
 
 from app.services.ai import ProviderRegistry, build_registry, display_name_for, set_registry
 from app.services.ai.claude import ClaudeProvider, ClaudeRefusal
@@ -58,10 +57,10 @@ def test_registry_infos_marks_default():
 def _settings(**overrides):
     base = dict(
         openai_api_key="", openai_model="gpt-6-luna", openai_reasoning_effort="low",
-        gemini_api_key="", gemini_model="gemini-3.8-flash",
+        gemini_api_key="", gemini_model="gemini-3.8-flash", gemini_thinking_level="low",
         xai_api_key="", xai_base_url="https://api.x.ai/v1", grok_model="grok-4.20-0309-non-reasoning",
         anthropic_api_key="", claude_model="claude-haiku-5-5",
-        default_ai_provider="openai",
+        default_ai_provider="openai", ai_request_timeout_seconds=60,
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -94,11 +93,21 @@ def test_build_registry_all_four():
     ))
     assert reg.names() == ["openai", "gemini", "grok", "claude"]
     assert reg.default.name == "gemini"
-    assert isinstance(reg.get("gemini"), GeminiProvider)
+    gemini = reg.get("gemini")
+    assert isinstance(gemini, GeminiProvider)
+    assert gemini._thinking_level == "low"
     claude = reg.get("claude")
     assert isinstance(claude, ClaudeProvider)
     assert claude.model == "claude-haiku-5-5"
     assert claude.display_name == "Claude"
+
+
+def test_build_registry_passes_request_timeout_to_every_provider():
+    reg = build_registry(_settings(
+        openai_api_key="a", gemini_api_key="b", xai_api_key="c", anthropic_api_key="d",
+        ai_request_timeout_seconds=12,
+    ))
+    assert [p._timeout for p in reg.all()] == [12, 12, 12, 12]
 
 
 def test_build_registry_none_configured():
@@ -163,7 +172,7 @@ def test_openai_compatible_builds_client_with_base_url():
     with patch("app.services.ai.openai_compatible.OpenAI") as mock_openai:
         provider._get_client()
         provider._get_client()
-    mock_openai.assert_called_once_with(api_key="k", base_url="https://api.x.ai/v1")
+    mock_openai.assert_called_once_with(api_key="k", base_url="https://api.x.ai/v1", timeout=60)
 
 
 def test_openai_compatible_handles_empty_content():
@@ -198,13 +207,32 @@ def test_gemini_calls_generate_content_with_json_mime():
     assert kwargs["contents"] == "user"
     assert kwargs["config"]["system_instruction"] == "sys"
     assert kwargs["config"]["response_mime_type"] == "application/json"
+    assert kwargs["config"]["thinking_config"] is None
+
+
+def test_gemini_sends_thinking_level():
+    fake_types = types.ModuleType("google.genai.types")
+    fake_types.GenerateContentConfig = MagicMock(side_effect=lambda **kw: kw)
+    fake_types.ThinkingConfig = MagicMock(side_effect=lambda **kw: kw)
+    fake_genai = types.ModuleType("google.genai")
+    fake_genai.types = fake_types
+    fake_google = types.ModuleType("google")
+    fake_google.genai = fake_genai
+
+    provider = GeminiProvider(api_key="k", model="gemini-3.8-flash", thinking_level="low")
+    client = MagicMock()
+    client.models.generate_content.return_value.text = "{}"
+    provider._client = client
+
+    with patch.dict(sys.modules, {"google": fake_google, "google.genai": fake_genai, "google.genai.types": fake_types}):
+        provider.complete("sys", "user")
+
+    config = client.models.generate_content.call_args.kwargs["config"]
+    assert config["thinking_config"] == {"thinking_level": "low"}
 
 
 def _genai_error(error_class, code):
-    response = requests.Response()
-    response.status_code = code
-    response._content = json.dumps({"error": {"code": code, "status": "ERROR", "message": "m"}}).encode()
-    return error_class(code, response)
+    return error_class(code, {"error": {"code": code, "status": "ERROR", "message": "m"}})
 
 
 def test_gemini_retries_rate_limits_and_outages():
@@ -213,8 +241,8 @@ def test_gemini_retries_rate_limits_and_outages():
     provider = GeminiProvider(api_key="k", model="m")
     assert provider.is_transient(_genai_error(errors.ClientError, 429))
     assert provider.is_transient(_genai_error(errors.ServerError, 503))
-    assert provider.is_transient(requests.ConnectionError())
-    assert provider.is_transient(requests.Timeout())
+    assert provider.is_transient(httpx.ConnectError("refused"))
+    assert provider.is_transient(httpx.ReadTimeout("slow"))
 
 
 def test_gemini_does_not_retry_permanent_errors():
@@ -229,6 +257,17 @@ def test_gemini_does_not_retry_permanent_errors():
 def test_openai_compatible_leaves_retries_to_its_sdk():
     provider = OpenAICompatibleProvider("openai", "GPT", "gpt-4o-mini", api_key="k")
     assert not provider.is_transient(RuntimeError("429"))
+
+
+def test_gemini_builds_client_with_timeout_in_milliseconds():
+    provider = GeminiProvider(api_key="k", model="m", timeout=30)
+    with patch("google.genai.Client") as mock_client:
+        provider._get_client()
+        provider._get_client()
+    mock_client.assert_called_once()
+    kwargs = mock_client.call_args.kwargs
+    assert kwargs["api_key"] == "k"
+    assert kwargs["http_options"].timeout == 30_000
 
 
 def test_gemini_defaults():
@@ -287,7 +326,7 @@ def test_claude_builds_client_once_with_api_key():
     with patch("anthropic.Anthropic") as mock_anthropic:
         provider._get_client()
         provider._get_client()
-    mock_anthropic.assert_called_once_with(api_key="k")
+    mock_anthropic.assert_called_once_with(api_key="k", timeout=60)
 
 
 def test_claude_defaults():

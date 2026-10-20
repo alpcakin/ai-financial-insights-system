@@ -152,6 +152,7 @@ def test_embed_articles_embeds_title_and_description():
         client = mock_openai.return_value
         client.embeddings.create.return_value.data = [MagicMock(embedding=E_BASE)]
         assert dedup_service.embed_articles([_article("a")]) == [E_BASE]
+    assert mock_openai.call_args.kwargs["timeout"] == dedup_service.settings.ai_request_timeout_seconds
     kwargs = client.embeddings.create.call_args.kwargs
     assert kwargs["model"] == "text-embedding-3-small"
     assert kwargs["input"] == ["a. a details"]

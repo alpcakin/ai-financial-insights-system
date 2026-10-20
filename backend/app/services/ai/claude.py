@@ -26,11 +26,13 @@ class ClaudeProvider(AIProvider):
         display_name: str = "Claude",
         effort: str = "low",
         max_tokens: int = 4096,
+        timeout: float = 60,
     ) -> None:
         super().__init__(name, display_name, model)
         self._api_key = api_key
         self._effort = effort
         self._max_tokens = max_tokens
+        self._timeout = timeout
         self._client = None
 
     def _get_client(self):
@@ -38,7 +40,7 @@ class ClaudeProvider(AIProvider):
             # Imported lazily so the backend runs without the SDK when Claude is disabled.
             import anthropic
 
-            self._client = anthropic.Anthropic(api_key=self._api_key)
+            self._client = anthropic.Anthropic(api_key=self._api_key, timeout=self._timeout)
         return self._client
 
     def complete(self, system_prompt: str, user_prompt: str) -> str:

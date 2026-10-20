@@ -93,6 +93,7 @@ def build_registry(settings) -> ProviderRegistry:
             model=settings.openai_model,
             api_key=settings.openai_api_key,
             reasoning_effort=settings.openai_reasoning_effort or None,
+            timeout=settings.ai_request_timeout_seconds,
         ))
 
     if settings.gemini_api_key:
@@ -100,6 +101,8 @@ def build_registry(settings) -> ProviderRegistry:
             api_key=settings.gemini_api_key,
             model=settings.gemini_model,
             display_name=DISPLAY_NAMES["gemini"],
+            thinking_level=settings.gemini_thinking_level or None,
+            timeout=settings.ai_request_timeout_seconds,
         ))
 
     if settings.xai_api_key:
@@ -109,6 +112,7 @@ def build_registry(settings) -> ProviderRegistry:
             model=settings.grok_model,
             api_key=settings.xai_api_key,
             base_url=settings.xai_base_url,
+            timeout=settings.ai_request_timeout_seconds,
         ))
 
     if settings.anthropic_api_key:
@@ -116,6 +120,7 @@ def build_registry(settings) -> ProviderRegistry:
             api_key=settings.anthropic_api_key,
             model=settings.claude_model,
             display_name=DISPLAY_NAMES["claude"],
+            timeout=settings.ai_request_timeout_seconds,
         ))
 
     registry = ProviderRegistry(providers, settings.default_ai_provider)

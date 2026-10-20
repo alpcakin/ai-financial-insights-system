@@ -50,7 +50,8 @@ def embed_articles(articles: list[dict]) -> list[list[float]] | None:
     """One embedding per article, or None when no OpenAI key is configured."""
     if not settings.openai_api_key:
         return None
-    response = OpenAI(api_key=settings.openai_api_key).embeddings.create(
+    client = OpenAI(api_key=settings.openai_api_key, timeout=settings.ai_request_timeout_seconds)
+    response = client.embeddings.create(
         model=EMBEDDING_MODEL,
         input=[f"{a['title']}. {a['description']}" for a in articles],
     )

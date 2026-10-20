@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     openai_reasoning_effort: str = "low"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.8-flash"
+    # Gemini 3 models think by default; "low" matches the effort the other
+    # providers run with. Empty keeps the model default.
+    gemini_thinking_level: str = "low"
     xai_api_key: str = ""
     xai_base_url: str = "https://api.x.ai/v1"
     grok_model: str = "grok-4.20-0309-non-reasoning"
@@ -23,6 +26,10 @@ class Settings(BaseSettings):
     # Provider used for new accounts and as the fallback when a user's
     # chosen provider produced no analysis for an article.
     default_ai_provider: str = "openai"
+    # Upper bound for one AI request. The SDK defaults are 10 minutes (OpenAI,
+    # Anthropic) or no limit at all (google-genai), and a single hung request
+    # stalls the whole news cycle.
+    ai_request_timeout_seconds: float = 60
 
     news_fetch_interval_minutes: int = 0
 
