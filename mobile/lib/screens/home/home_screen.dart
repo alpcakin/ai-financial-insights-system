@@ -100,8 +100,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       await ref.read(watchlistProvider.notifier).add(
             token,
             symbol: asset.symbol,
-            type: asset.type,
-            category: asset.category,
           );
     } catch (_) {
       if (!mounted) return;
@@ -891,10 +889,8 @@ class _PortfolioDetailsSheetState
       await ref.read(portfolioProvider.notifier).add(
             token,
             symbol: widget.asset.symbol,
-            type: widget.asset.type,
             quantity: quantity,
             purchasePrice: price,
-            category: widget.asset.category,
           );
       if (mounted) Navigator.of(context).pop(true);
     } catch (_) {

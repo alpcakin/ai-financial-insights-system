@@ -587,9 +587,13 @@ class _ChangePasswordSheetState extends ConsumerState<_ChangePasswordSheet> {
             newPassword: _newCtrl.text,
           );
       if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      final auth = ref.read(authProvider.notifier);
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password updated successfully')),
+      // The backend ends every session when the password changes.
+      await auth.logout();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Password updated. Please sign in again.')),
       );
     } on Exception catch (e) {
       setState(() {

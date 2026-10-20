@@ -78,20 +78,16 @@ class PortfolioNotifier extends StateNotifier<PortfolioState> {
   Future<void> add(
     String token, {
     required String symbol,
-    required String type,
     required double quantity,
     required double purchasePrice,
-    String? category,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final asset = await _repository.addAsset(
         token,
         symbol: symbol,
-        type: type,
         quantity: quantity,
         purchasePrice: purchasePrice,
-        category: category,
       );
       state = state.copyWith(
         assets: [...state.assets, asset],

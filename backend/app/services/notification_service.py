@@ -56,7 +56,10 @@ def send_push(fcm_token: str, title: str, body: str) -> bool:
         return False
 
 
-def batch_fetch_fcm_tokens(db: Client, user_ids: set[str]) -> dict[str, str]:
+def batch_fetch_fcm_tokens(db: Client, user_ids: set[str], preference_key: str) -> dict[str, str]:
+    """Push tokens of the users who have not turned off this alert type
+    ("impact_alerts" or "volatility_alerts"). The alert rows are created
+    either way; the preference only controls the push."""
     if not user_ids:
         return {}
     result = (
@@ -69,7 +72,7 @@ def batch_fetch_fcm_tokens(db: Client, user_ids: set[str]) -> dict[str, str]:
     for row in result.data:
         prefs = row.get("notification_preferences") or {}
         token = prefs.get("fcm_token")
-        if token:
+        if token and prefs.get(preference_key, True):
             token_map[row["id"]] = token
     return token_map
 

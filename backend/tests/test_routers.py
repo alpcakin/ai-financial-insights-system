@@ -82,10 +82,10 @@ def test_login_401(auth_client, mock_db):
 
 
 def test_refresh_200(auth_client, mock_db):
-    from app.core.security import create_refresh_token, hash_refresh_token
+    from app.core.security import create_refresh_token, hash_token
     raw = create_refresh_token()
     expires = (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat()
-    rt_row = {"id": "rt1", "user_id": "u1", "token_hash": hash_refresh_token(raw), "expires_at": expires}
+    rt_row = {"id": "rt1", "user_id": "u1", "token_hash": hash_token(raw), "expires_at": expires}
     mock_db.table.side_effect = [
         chain_mock([rt_row]),                              # select refresh_tokens
         chain_mock([{"id": "u1", "email": "u@ex.com"}]),  # select users
@@ -136,7 +136,6 @@ def test_add_portfolio_201(client, mock_db):
         ]
         r = client.post("/portfolio", json={
             "asset_symbol": "AAPL",
-            "asset_type": "stock",
             "quantity": 10,
             "purchase_price": 150.0,
         })
@@ -258,7 +257,7 @@ def test_reset_password_page_expired_token(auth_client, mock_db):
 def test_reset_password_submit_success(auth_client, mock_db):
     expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     user_row = {"id": "u1", "email": "u@ex.com", "password_reset_expires_at": expires}
-    mock_db.table.side_effect = [chain_mock([user_row]), chain_mock([])]
+    mock_db.table.side_effect = [chain_mock([user_row]), chain_mock([]), chain_mock([])]
     r = auth_client.post("/auth/reset-password", data={
         "token": "valid-token",
         "new_password": "NewPass1!",
@@ -333,6 +332,7 @@ def test_change_password_router_200(client, mock_db):
     mock_db.table.side_effect = [
         chain_mock([{"password_hash": hash_password("Password1!")}]),
         chain_mock([]),
+        chain_mock([]),
     ]
     r = client.patch("/users/me/password", json={
         "current_password": "Password1!",
@@ -354,3 +354,7 @@ def test_delete_me_204(client, mock_db):
     mock_db.table.side_effect = lambda _: chain_mock([])
     r = client.delete("/users/me")
     assert r.status_code == 204
+
+
+def test_volatility_check_cannot_be_triggered_by_users(client):
+    assert client.post("/alerts/volatility-check").status_code == 404

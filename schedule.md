@@ -54,8 +54,11 @@ Backend deployment to Railway/Heroku with Gunicorn, APK build and distribution, 
 The sections above are the original plan. The delivered system differs in these points:
 
 - **Scheduling**: Celery and Redis were replaced by an in-process APScheduler (May 2026). One process is simpler to deploy and the job volume did not justify a broker.
-- **Reports**: only the weekly report is generated, on Sundays at 20:00. The daily report, the on-demand generation option and the GPT-generated "Tier 1" asset reports were dropped; reports are computed from price data alone.
+- **News source**: MediaStack was replaced by a fixed list of 7 RSS feeds from 5 outlets (October 2026, approved by the supervisor). MediaStack's free plan allowed 100 requests a month, was delayed and returned little more than headlines. Instead of the domain whitelist, the outlets are chosen by name.
+- **Same-event grouping** (not in the plan): articles are embedded and grouped so that one event reported by several outlets is analyzed, shown and notified once, with every outlet listed as a source.
+- **Storage gate**: every story is stored with all its analyses; only stories rated severity 4 or above by the user's model reach the feed. Feed entries and alerts are deleted after 30 days, except bookmarked ones.
+- **Reports**: only the weekly report is generated, on Sundays at 20:00. The daily report, the on-demand generation option and the GPT-generated "Tier 1" asset reports were dropped. No AI call is made for reports: the recap is built in Python from price data, and the listed articles carry the analyses the user already received.
 - **Offline cache**: the SQLite cache for the dashboard was not implemented. The app requires a connection.
 - **Load testing**: no load tests were run. Performance work was limited to database indexes, batched price lookups and batched push notifications.
-- **AI providers**: the single hard-wired GPT-4o-mini call was replaced by a provider abstraction (September 2026). Every article is analyzed by all enabled providers, users choose which one they see, and results are stored per provider for comparison.
+- **AI providers**: the single hard-wired GPT-4o-mini call was replaced by a provider abstraction (September 2026). Four providers ship: OpenAI GPT (gpt-6-luna), Google Gemini, xAI Grok and Anthropic Claude. Every story is analyzed by all enabled providers, users choose which one they see, and results are stored per provider for comparison.
 - **Tables**: the schema grew from 8 to 11 tables (watchlist, refresh_tokens, article_analyses).

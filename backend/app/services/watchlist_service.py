@@ -5,6 +5,7 @@ from supabase import Client
 import yfinance as yf
 
 from app.models.watchlist import AddWatchlistRequest, WatchlistItemResponse
+from app.services.asset_catalog import get_asset
 from app.services.topic_service import auto_subscribe, auto_unsubscribe
 
 
@@ -86,7 +87,13 @@ def get_watchlist(db: Client, user_id: str) -> list[WatchlistItemResponse]:
 
 
 def add_item(db: Client, user_id: str, request: AddWatchlistRequest) -> WatchlistItemResponse:
-    symbol = request.asset_symbol.upper()
+    asset = get_asset(request.asset_symbol)
+    if asset is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Unknown asset symbol',
+        )
+    symbol = asset['symbol']
 
     existing = (
         db.table('watchlist')
@@ -104,8 +111,8 @@ def add_item(db: Client, user_id: str, request: AddWatchlistRequest) -> Watchlis
     result = db.table('watchlist').insert({
         'user_id': user_id,
         'asset_symbol': symbol,
-        'asset_type': request.asset_type,
-        'category': request.category,
+        'asset_type': asset['type'],
+        'category': asset['category'],
     }).execute()
 
     if not result.data:
@@ -114,7 +121,7 @@ def add_item(db: Client, user_id: str, request: AddWatchlistRequest) -> Watchlis
             detail='Failed to add to watchlist',
         )
 
-    auto_subscribe(db, user_id, request.category)
+    auto_subscribe(db, user_id, asset['category'])
     price_info = _get_price_info(symbol)
     return _build_response(result.data[0], price_info)
 

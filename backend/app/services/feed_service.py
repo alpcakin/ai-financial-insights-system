@@ -3,6 +3,7 @@ from supabase import Client
 
 from app.services.ai import display_name_for
 from app.services.ai_service import qualifies
+from app.services.user_service import effective_provider
 
 logger = logging.getLogger(__name__)
 
@@ -114,9 +115,11 @@ def distribute_article(
     analyzed_providers = {a["provider"] for a in analyses}
 
     assignments: dict[str, set[str]] = {}
+    rows = []
     for user_id in all_users:
+        user_provider = user_providers.get(user_id)
         chosen = choose_analysis(
-            user_providers.get(user_id),
+            user_provider,
             matched_by_provider,
             user_id,
             default_provider,
@@ -124,13 +127,16 @@ def distribute_article(
         )
         if chosen is None:
             continue
-        assignments.setdefault(by_provider[chosen]["id"], set()).add(user_id)
+        analysis_id = by_provider[chosen]["id"]
+        assignments.setdefault(analysis_id, set()).add(user_id)
+        rows.append({
+            "user_id": user_id,
+            "article_id": article_id,
+            "analysis_id": analysis_id,
+            # Stored, not derived on read: the user may change their model later.
+            "is_fallback": chosen != effective_provider({"ai_provider": user_provider}),
+        })
 
-    rows = [
-        {"user_id": uid, "article_id": article_id, "analysis_id": analysis_id}
-        for analysis_id, users in assignments.items()
-        for uid in users
-    ]
     if rows:
         db.table("user_news_feed").upsert(rows, on_conflict="user_id,article_id").execute()
 
@@ -141,7 +147,7 @@ def distribute_article(
     return assignments
 
 
-def _merge_feed_row(row: dict, user_provider: str | None) -> dict:
+def _merge_feed_row(row: dict) -> dict:
     article = dict(row.get("articles") or {})
     analysis = row.get("article_analyses") or {}
     for field in ANALYSIS_FIELDS:
@@ -149,7 +155,7 @@ def _merge_feed_row(row: dict, user_provider: str | None) -> dict:
     provider = analysis.get("provider")
     article["analyzed_by"] = provider
     article["analyzed_by_name"] = display_name_for(provider) if provider else None
-    article["is_fallback"] = bool(provider) and provider != user_provider
+    article["is_fallback"] = row.get("is_fallback", False)
     article["read"] = row["read"]
     article["bookmarked"] = row["bookmarked"]
     return article
@@ -157,7 +163,7 @@ def _merge_feed_row(row: dict, user_provider: str | None) -> dict:
 
 # Explicit article columns: articles also carry a 1536-dimension embedding.
 FEED_SELECT = (
-    "read, bookmarked, created_at, "
+    "read, bookmarked, is_fallback, created_at, "
     "articles(id, title, url, source, published_at), article_analyses(*)"
 )
 
@@ -191,7 +197,6 @@ def get_feed(
     limit: int,
     offset: int,
     category: str | None,
-    user_provider: str | None = None,
 ) -> dict:
     if category:
         result = (
@@ -227,7 +232,7 @@ def get_feed(
         )
         page = page_result.data
 
-    articles = [_merge_feed_row(r, user_provider) for r in page]
+    articles = [_merge_feed_row(r) for r in page]
     _attach_sources(db, articles)
     return {"articles": articles, "total": total, "offset": offset, "limit": limit}
 

@@ -57,23 +57,18 @@ def test_login_invalid_email():
 
 
 def test_add_asset_valid():
-    r = AddAssetRequest(asset_symbol="AAPL", asset_type="stock", quantity=10, purchase_price=150.0)
+    r = AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=150.0)
     assert r.asset_symbol == "AAPL"
-
-
-def test_add_asset_invalid_type():
-    with pytest.raises(ValidationError):
-        AddAssetRequest(asset_symbol="AAPL", asset_type="futures", quantity=10, purchase_price=150.0)
 
 
 def test_add_asset_zero_quantity():
     with pytest.raises(ValidationError):
-        AddAssetRequest(asset_symbol="AAPL", asset_type="stock", quantity=0, purchase_price=150.0)
+        AddAssetRequest(asset_symbol="AAPL", quantity=0, purchase_price=150.0)
 
 
 def test_add_asset_negative_price():
     with pytest.raises(ValidationError):
-        AddAssetRequest(asset_symbol="AAPL", asset_type="stock", quantity=10, purchase_price=-1.0)
+        AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=-1.0)
 
 
 def test_update_asset_valid():

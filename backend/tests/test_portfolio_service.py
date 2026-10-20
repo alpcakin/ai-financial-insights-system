@@ -62,7 +62,7 @@ def test_add_asset_success(mock_ticker):
     db = make_db({})
     db.table.side_effect = [existing_mock, insert_mock, chain_mock([]), chain_mock([])]
 
-    req = AddAssetRequest(asset_symbol="AAPL", asset_type="stock", quantity=10, purchase_price=150.0)
+    req = AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=150.0)
     result = add_asset(db, "u1", req)
     assert result.asset_symbol == "AAPL"
 
@@ -71,7 +71,7 @@ def test_add_asset_success(mock_ticker):
 def test_add_asset_duplicate(mock_ticker):
     db = make_db({})
     db.table.side_effect = [chain_mock([{"id": "existing"}])]
-    req = AddAssetRequest(asset_symbol="AAPL", asset_type="stock", quantity=10, purchase_price=150.0)
+    req = AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=150.0)
     with pytest.raises(HTTPException) as exc:
         add_asset(db, "u1", req)
     assert exc.value.status_code == 409
@@ -82,7 +82,7 @@ def test_add_asset_yfinance_fails(mock_ticker):
     mock_ticker.return_value.fast_info.last_price = None
     db = make_db({})
     db.table.side_effect = [chain_mock([]), chain_mock([{**ASSET_ROW}]), chain_mock([]), chain_mock([])]
-    req = AddAssetRequest(asset_symbol="AAPL", asset_type="stock", quantity=10, purchase_price=150.0)
+    req = AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=150.0)
     result = add_asset(db, "u1", req)
     assert result.current_price is None
 
@@ -133,7 +133,7 @@ def test_current_price_nan(mock_ticker):
     mock_ticker.return_value.fast_info.last_price = float("nan")
     db = make_db({})
     db.table.side_effect = [chain_mock([]), chain_mock([{**ASSET_ROW}]), chain_mock([]), chain_mock([])]
-    req = AddAssetRequest(asset_symbol="AAPL", asset_type="stock", quantity=10, purchase_price=150.0)
+    req = AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=150.0)
     result = add_asset(db, "u1", req)
     assert result.current_price is None
 
@@ -143,6 +143,6 @@ def test_current_price_zero(mock_ticker):
     mock_ticker.return_value.fast_info.last_price = 0.0
     db = make_db({})
     db.table.side_effect = [chain_mock([]), chain_mock([{**ASSET_ROW}]), chain_mock([]), chain_mock([])]
-    req = AddAssetRequest(asset_symbol="AAPL", asset_type="stock", quantity=10, purchase_price=150.0)
+    req = AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=150.0)
     result = add_asset(db, "u1", req)
     assert result.current_price is None

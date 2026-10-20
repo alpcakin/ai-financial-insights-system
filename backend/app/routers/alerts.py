@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from app.core.database import get_db
 from app.dependencies import get_current_user
 from app.models.alert import AlertsResponse, RegisterTokenRequest
-from app.services.alert_service import get_alerts, generate_volatility_alerts, mark_alerts_read
+from app.services.alert_service import get_alerts, mark_alerts_read
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -41,12 +41,3 @@ def register_fcm_token(
     ).eq("id", current_user["id"]).execute()
 
     return {"status": "ok"}
-
-
-@router.post("/volatility-check")
-def trigger_volatility_check(
-    current_user: dict = Depends(get_current_user),
-    db=Depends(get_db),
-):
-    count = generate_volatility_alerts(db)
-    return {"alerts_created": count}

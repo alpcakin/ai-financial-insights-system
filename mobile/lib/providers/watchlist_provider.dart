@@ -47,10 +47,10 @@ class WatchlistNotifier extends StateNotifier<WatchlistState> {
     }
   }
 
-  Future<void> add(String token, {required String symbol, required String type, String? category}) async {
+  Future<void> add(String token, {required String symbol}) async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final item = await _repository.addItem(token, symbol: symbol, type: type, category: category);
+      final item = await _repository.addItem(token, symbol: symbol);
       state = state.copyWith(items: [...state.items, item], isLoading: false);
     } on WatchlistException catch (e) {
       state = state.copyWith(isLoading: false, error: e.message);

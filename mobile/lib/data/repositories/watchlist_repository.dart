@@ -56,18 +56,12 @@ class WatchlistRepository {
   Future<WatchlistItem> addItem(
     String token, {
     required String symbol,
-    required String type,
-    String? category,
   }) async {
     final response = await http
         .post(
           Uri.parse('${AppConstants.baseUrl}/watchlist'),
           headers: _headers(token),
-          body: jsonEncode({
-            'asset_symbol': symbol,
-            'asset_type': type,
-            if (category != null) 'category': category,
-          }),
+          body: jsonEncode({'asset_symbol': symbol}),
         )
         .timeout(_timeout);
 

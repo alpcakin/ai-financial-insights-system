@@ -1,6 +1,6 @@
 import pytest
 from fastapi import HTTPException
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 from app.core.security import hash_password
 from app.models.user import UpdatePreferencesRequest
@@ -61,14 +61,14 @@ def test_update_preferences_only_volatility():
     assert result["notification_preferences"]["volatility_alerts"] is False
 
 
-def test_change_password_success():
-    db = make_db({})
-    calls = [
-        chain_mock([{"password_hash": hash_password("Current1!")}]),
-        chain_mock([]),
-    ]
-    db.table.side_effect = lambda _: calls.pop(0)
-    change_password(db, "user-123", "Current1!", "NewPass1!")  # should not raise
+def test_change_password_revokes_all_sessions():
+    users = chain_mock([{"password_hash": hash_password("Current1!")}])
+    refresh_tokens = chain_mock([])
+    db = MagicMock()
+    db.table.side_effect = lambda name: refresh_tokens if name == "refresh_tokens" else users
+    change_password(db, "user-123", "Current1!", "NewPass1!")
+    refresh_tokens.delete.assert_called_once()
+    refresh_tokens.eq.assert_called_once_with("user_id", "user-123")
 
 
 def test_change_password_user_not_found():
@@ -84,6 +84,7 @@ def test_change_password_wrong_current():
     with pytest.raises(HTTPException) as exc:
         change_password(db, "user-123", "WrongPass1!", "NewPass1!")
     assert exc.value.status_code == 401
+    assert call("refresh_tokens") not in db.table.call_args_list
 
 
 def test_delete_account_calls_delete():

@@ -1,10 +1,11 @@
 import html as html_lib
 
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from supabase import Client
 
 from app.core.database import get_db
+from app.core.rate_limit import RateLimiter, email_limiter, login_limiter
 from app.core.security import validate_password_strength
 from pydantic import BaseModel
 
@@ -39,6 +40,16 @@ _OUTER_STYLE = (
     "display: flex; align-items: center; justify-content: center;"
     " min-height: 100vh;"
 )
+
+
+def _check_rate_limit(limiter: RateLimiter, request: Request) -> None:
+    retry_after = limiter.hit(request.client.host if request.client else "unknown")
+    if retry_after:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Please try again later.",
+            headers={"Retry-After": str(retry_after)},
+        )
 
 
 def _html_page(body: str) -> str:
@@ -102,12 +113,14 @@ def logout(request: LogoutRequest, db: Client = Depends(get_db)):
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=201)
-def register(request: RegisterRequest, db: Client = Depends(get_db)):
+def register(request: RegisterRequest, http_request: Request, db: Client = Depends(get_db)):
+    _check_rate_limit(email_limiter, http_request)
     return register_user(db, request)
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(request: LoginRequest, db: Client = Depends(get_db)):
+def login(request: LoginRequest, http_request: Request, db: Client = Depends(get_db)):
+    _check_rate_limit(login_limiter, http_request)
     return login_user(db, request)
 
 
@@ -124,7 +137,8 @@ def verify_email_endpoint(token: str, db: Client = Depends(get_db)):
 
 
 @router.post("/forgot-password")
-def forgot_password(request: ForgotPasswordRequest, db: Client = Depends(get_db)):
+def forgot_password(request: ForgotPasswordRequest, http_request: Request, db: Client = Depends(get_db)):
+    _check_rate_limit(email_limiter, http_request)
     request_password_reset(db, request.email)
     return {"message": "If an account with that email exists, a reset link has been sent."}
 

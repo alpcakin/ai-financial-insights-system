@@ -138,6 +138,30 @@ def test_distribute_falls_back_when_user_provider_missing():
     assert result == {"an-openai": {"u2"}}
 
 
+def test_distribute_stores_fallback_flag(registry):
+    db = _db(
+        portfolio=[{"user_id": "u1"}, {"user_id": "u2"}],
+        users=[{"id": "u1", "ai_provider": "openai"}, {"id": "u2", "ai_provider": "gemini"}],
+    )
+    distribute_article(db, "a1", [_analysis("openai")], "openai")
+    flags = {r["user_id"]: r["is_fallback"] for r in db.upserts}
+    assert flags == {"u1": False, "u2": True}
+
+
+def test_distribute_own_provider_is_not_a_fallback(registry):
+    db = _db(portfolio=[{"user_id": "u2"}], users=[{"id": "u2", "ai_provider": "gemini"}])
+    distribute_article(db, "a1", [_analysis("openai"), _analysis("gemini")], "openai")
+    assert db.upserts[0]["is_fallback"] is False
+
+
+def test_distribute_disabled_provider_is_not_a_fallback(registry):
+    """A user whose model is switched off is served by the default model,
+    which is also what their profile shows."""
+    db = _db(portfolio=[{"user_id": "u1"}], users=[{"id": "u1", "ai_provider": "claude"}])
+    distribute_article(db, "a1", [_analysis("openai")], "openai")
+    assert db.upserts[0]["is_fallback"] is False
+
+
 def test_distribute_low_severity_provider_blocks_its_users():
     """Gemini judged the article weak, so Gemini users do not get the
     OpenAI version instead."""
@@ -159,7 +183,7 @@ ANALYSIS = {
 }
 
 
-def test_get_feed_no_filter_merges_analysis_and_flags_fallback():
+def test_get_feed_no_filter_merges_analysis_and_reads_fallback_flag():
     db = MagicMock()
 
     count_mock = MagicMock()
@@ -167,7 +191,7 @@ def test_get_feed_no_filter_merges_analysis_and_flags_fallback():
 
     page_mock = MagicMock()
     page_mock.execute.return_value.data = [
-        {"read": False, "bookmarked": False, "created_at": "2026-04-28",
+        {"read": False, "bookmarked": False, "is_fallback": True, "created_at": "2026-04-28",
          "articles": ARTICLE, "article_analyses": ANALYSIS}
     ]
 
@@ -183,7 +207,7 @@ def test_get_feed_no_filter_merges_analysis_and_flags_fallback():
         return m
 
     db.table.return_value.select.side_effect = make_select
-    result = get_feed(db, "u1", 20, 0, None, user_provider="openai")
+    result = get_feed(db, "u1", 20, 0, None)
     assert result["total"] == 1
     article = result["articles"][0]
     assert article["title"] == "T"
@@ -195,13 +219,15 @@ def test_get_feed_no_filter_merges_analysis_and_flags_fallback():
     assert article["read"] is False
 
 
-def test_get_feed_not_fallback_for_own_provider():
+def test_get_feed_keeps_delivery_flag_after_model_change():
+    """The entry was delivered by the user's own model at the time; the
+    user's current model no longer matters."""
     db = MagicMock()
     db.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = [
-        {"read": True, "bookmarked": False, "created_at": "2026-04-28",
+        {"read": True, "bookmarked": False, "is_fallback": False, "created_at": "2026-04-28",
          "articles": ARTICLE, "article_analyses": ANALYSIS},
     ]
-    result = get_feed(db, "u1", 20, 0, "Tech", user_provider="gemini")
+    result = get_feed(db, "u1", 20, 0, "Tech")
     assert result["total"] == 1
     assert result["articles"][0]["is_fallback"] is False
     assert result["articles"][0]["read"] is True
@@ -216,7 +242,7 @@ def test_get_feed_category_filter_uses_analysis_categories():
         {"read": False, "bookmarked": False, "created_at": "2026-04-28",
          "articles": {**ARTICLE, "id": "a2", "title": "Finance"}, "article_analyses": fin},
     ]
-    result = get_feed(db, "u1", 20, 0, "Tech", user_provider="gemini")
+    result = get_feed(db, "u1", 20, 0, "Tech")
     assert result["total"] == 1
     assert result["articles"][0]["title"] == "Tech"
 
@@ -227,7 +253,7 @@ def test_get_feed_row_without_analysis():
         {"read": False, "bookmarked": False, "created_at": "2026-04-28",
          "articles": ARTICLE, "article_analyses": None},
     ]
-    result = get_feed(db, "u1", 20, 0, "Tech", user_provider="openai")
+    result = get_feed(db, "u1", 20, 0, "Tech")
     assert result["total"] == 0
 
 

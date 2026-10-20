@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
+from app.core.rate_limit import email_limiter, login_limiter
 from app.main import app
 from app.dependencies import get_current_user, get_db
 from app.services.ai import AIProvider, ProviderRegistry, set_registry
@@ -77,6 +78,12 @@ def _default_registry():
     set_registry(ProviderRegistry([FakeProvider("openai")], "openai"))
     yield
     set_registry(None)
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    login_limiter.reset()
+    email_limiter.reset()
 
 
 @pytest.fixture

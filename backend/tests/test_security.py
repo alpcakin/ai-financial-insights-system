@@ -7,7 +7,7 @@ from app.core.security import (
     create_refresh_token,
     decode_access_token,
     hash_password,
-    hash_refresh_token,
+    hash_token,
     validate_password_strength,
     verify_password,
 )
@@ -101,16 +101,16 @@ def test_create_refresh_token_unique():
     assert create_refresh_token() != create_refresh_token()
 
 
-def test_hash_refresh_token_is_hex():
-    h = hash_refresh_token("some-token")
+def test_hash_token_is_hex():
+    h = hash_token("some-token")
     assert len(h) == 64
     assert all(c in "0123456789abcdef" for c in h)
 
 
-def test_hash_refresh_token_deterministic():
+def test_hash_token_deterministic():
     t = create_refresh_token()
-    assert hash_refresh_token(t) == hash_refresh_token(t)
+    assert hash_token(t) == hash_token(t)
 
 
-def test_hash_refresh_token_different_inputs():
-    assert hash_refresh_token("tok-a") != hash_refresh_token("tok-b")
+def test_hash_token_different_inputs():
+    assert hash_token("tok-a") != hash_token("tok-b")

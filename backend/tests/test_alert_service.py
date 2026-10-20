@@ -239,14 +239,30 @@ def test_batch_fetch_fcm_tokens_returns_map():
         {"id": "u3", "notification_preferences": {}},
     ]
     db = make_db({"users": users})
-    result = batch_fetch_fcm_tokens(db, {"u1", "u2", "u3"})
+    result = batch_fetch_fcm_tokens(db, {"u1", "u2", "u3"}, "impact_alerts")
     assert result == {"u1": "tok1", "u2": "tok2"}
 
 
 def test_batch_fetch_fcm_tokens_empty_input():
     db = make_db({})
-    result = batch_fetch_fcm_tokens(db, set())
+    result = batch_fetch_fcm_tokens(db, set(), "impact_alerts")
     assert result == {}
+
+
+def test_batch_fetch_fcm_tokens_skips_users_who_turned_the_type_off():
+    users = [
+        {"id": "u1", "notification_preferences": {"fcm_token": "tok1", "impact_alerts": False}},
+        {"id": "u2", "notification_preferences": {"fcm_token": "tok2", "impact_alerts": True}},
+        {"id": "u3", "notification_preferences": {"fcm_token": "tok3"}},
+    ]
+    db = make_db({"users": users})
+    assert batch_fetch_fcm_tokens(db, {"u1", "u2", "u3"}, "impact_alerts") == {"u2": "tok2", "u3": "tok3"}
+
+
+def test_batch_fetch_fcm_tokens_checks_only_the_given_type():
+    users = [{"id": "u1", "notification_preferences": {"fcm_token": "tok1", "impact_alerts": False}}]
+    db = make_db({"users": users})
+    assert batch_fetch_fcm_tokens(db, {"u1"}, "volatility_alerts") == {"u1": "tok1"}
 
 
 def test_impact_alert_stores_provider():
@@ -276,3 +292,36 @@ def test_impact_alert_stores_provider():
     assert count == 1
     assert captured["ai_provider"] == "gemini"
     assert captured["asset_symbol"] == "AAPL"
+
+
+def _impact_db(prefs):
+    def t(name):
+        m = chain_mock([])
+        if name == "alerts":
+            m.insert.return_value = chain_mock([{"id": "a1"}])
+        elif name == "portfolio":
+            m.execute.return_value.data = [{"user_id": "u1", "asset_symbol": "AAPL"}]
+        elif name == "users":
+            m.execute.return_value.data = [{"id": "u1", "notification_preferences": prefs}]
+        return m
+
+    db = MagicMock()
+    db.table.side_effect = t
+    return db
+
+
+_SEVERE = [{"symbol": "AAPL", "impact": "negative", "severity": 8, "reason": "bad"}]
+
+
+def test_impact_alert_is_stored_but_not_pushed_when_turned_off():
+    db = _impact_db({"fcm_token": "tok1", "impact_alerts": False})
+    with patch("app.services.alert_service.notify_alert_with_token") as notify:
+        assert generate_impact_alerts(db, "article-1", {"u1"}, _SEVERE, ai_provider="openai") == 1
+    notify.assert_not_called()
+
+
+def test_impact_alert_is_pushed_when_turned_on():
+    db = _impact_db({"fcm_token": "tok1"})
+    with patch("app.services.alert_service.notify_alert_with_token") as notify:
+        assert generate_impact_alerts(db, "article-1", {"u1"}, _SEVERE, ai_provider="openai") == 1
+    notify.assert_called_once()

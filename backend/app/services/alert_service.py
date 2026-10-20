@@ -44,7 +44,7 @@ def generate_impact_alerts(
     for row in portfolio_rows:
         user_portfolio_map.setdefault(row["user_id"], set()).add(row["asset_symbol"])
 
-    fcm_tokens = batch_fetch_fcm_tokens(db, user_ids)
+    fcm_tokens = batch_fetch_fcm_tokens(db, user_ids, "impact_alerts")
 
     created = 0
     for user_id in user_ids:
@@ -137,7 +137,7 @@ def generate_volatility_alerts(db: Client) -> int:
     all_user_ids: set[str] = set()
     for user_ids in asset_users.values():
         all_user_ids.update(user_ids)
-    fcm_tokens = batch_fetch_fcm_tokens(db, all_user_ids)
+    fcm_tokens = batch_fetch_fcm_tokens(db, all_user_ids, "volatility_alerts")
 
     for symbol, change_pct in change_map.items():
         user_ids = asset_users[symbol]

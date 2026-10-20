@@ -11,12 +11,16 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     hash_password,
-    hash_refresh_token,
+    hash_token,
     verify_password,
 )
 from app.models.user import LoginRequest, RegisterRequest, RegisterResponse, TokenResponse
 
 logger = logging.getLogger(__name__)
+
+# Checked when the email is unknown, so that the response takes as long as
+# for a wrong password and does not reveal whether the account exists.
+_DUMMY_PASSWORD_HASH = hash_password(secrets.token_urlsafe(16))
 
 
 def _send_verification_email(to_email: str, token: str) -> None:
@@ -77,7 +81,7 @@ def register_user(db: Client, request: RegisterRequest) -> RegisterResponse:
             "email": request.email,
             "password_hash": password_hash,
             "email_verified": False,
-            "email_verification_token": verification_token,
+            "email_verification_token": hash_token(verification_token),
         })
         .execute()
     )
@@ -96,7 +100,7 @@ def register_user(db: Client, request: RegisterRequest) -> RegisterResponse:
 
 
 def verify_email(db: Client, token: str) -> None:
-    result = db.table("users").select("id").eq("email_verification_token", token).execute()
+    result = db.table("users").select("id").eq("email_verification_token", hash_token(token)).execute()
     if not result.data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -119,6 +123,7 @@ def login_user(db: Client, request: LoginRequest) -> TokenResponse:
     )
 
     if not result.data:
+        verify_password(request.password, _DUMMY_PASSWORD_HASH)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -141,7 +146,7 @@ def login_user(db: Client, request: LoginRequest) -> TokenResponse:
     expires_at = (datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)).isoformat()
     insert = db.table("refresh_tokens").insert({
         "user_id": user["id"],
-        "token_hash": hash_refresh_token(raw_refresh),
+        "token_hash": hash_token(raw_refresh),
         "expires_at": expires_at,
     }).execute()
 
@@ -170,7 +175,7 @@ def request_password_reset(db: Client, email: str) -> None:
     expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
 
     db.table("users").update({
-        "password_reset_token": reset_token,
+        "password_reset_token": hash_token(reset_token),
         "password_reset_expires_at": expires_at,
     }).eq("id", result.data[0]["id"]).execute()
 
@@ -182,7 +187,7 @@ def get_user_by_reset_token(db: Client, token: str) -> dict | None:
     result = (
         db.table("users")
         .select("id, email, password_reset_expires_at")
-        .eq("password_reset_token", token)
+        .eq("password_reset_token", hash_token(token))
         .execute()
     )
     if not result.data:
@@ -210,10 +215,11 @@ def reset_password(db: Client, token: str, new_password: str) -> None:
         "password_reset_token": None,
         "password_reset_expires_at": None,
     }).eq("id", user["id"]).execute()
+    db.table("refresh_tokens").delete().eq("user_id", user["id"]).execute()
 
 
 def refresh_access_token(db: Client, raw_refresh_token: str) -> TokenResponse:
-    token_hash = hash_refresh_token(raw_refresh_token)
+    token_hash = hash_token(raw_refresh_token)
     result = (
         db.table("refresh_tokens")
         .select("id, user_id, expires_at")
@@ -247,7 +253,7 @@ def refresh_access_token(db: Client, raw_refresh_token: str) -> TokenResponse:
     new_expires_at = (datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)).isoformat()
     insert = db.table("refresh_tokens").insert({
         "user_id": user["id"],
-        "token_hash": hash_refresh_token(new_raw_refresh),
+        "token_hash": hash_token(new_raw_refresh),
         "expires_at": new_expires_at,
     }).execute()
 
@@ -264,5 +270,5 @@ def refresh_access_token(db: Client, raw_refresh_token: str) -> TokenResponse:
 
 
 def invalidate_refresh_token(db: Client, raw_refresh_token: str) -> None:
-    token_hash = hash_refresh_token(raw_refresh_token)
+    token_hash = hash_token(raw_refresh_token)
     db.table("refresh_tokens").delete().eq("token_hash", token_hash).execute()

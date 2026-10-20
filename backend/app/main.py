@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.routers import auth, portfolio, watchlist, users
-from app.routers import feed, alerts, reports, topics
+from app.routers import feed, alerts, reports, topics, assets
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,7 @@ app.include_router(feed.router)
 app.include_router(alerts.router)
 app.include_router(reports.router)
 app.include_router(topics.router)
+app.include_router(assets.router)
 
 
 @app.get("/health")

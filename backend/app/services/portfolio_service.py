@@ -6,6 +6,7 @@ from supabase import Client
 import yfinance as yf
 
 from app.models.portfolio import AddAssetRequest, AssetResponse, PortfolioResponse, UpdateAssetRequest
+from app.services.asset_catalog import get_asset
 from app.services.topic_service import auto_subscribe, auto_unsubscribe
 
 
@@ -132,7 +133,13 @@ def get_portfolio(db: Client, user_id: str) -> PortfolioResponse:
 
 
 def add_asset(db: Client, user_id: str, request: AddAssetRequest) -> AssetResponse:
-    symbol = request.asset_symbol.upper()
+    asset = get_asset(request.asset_symbol)
+    if asset is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Unknown asset symbol',
+        )
+    symbol = asset['symbol']
     price = _get_current_price(symbol)
 
     existing = (
@@ -151,10 +158,10 @@ def add_asset(db: Client, user_id: str, request: AddAssetRequest) -> AssetRespon
     result = db.table('portfolio').insert({
         'user_id': user_id,
         'asset_symbol': symbol,
-        'asset_type': request.asset_type,
+        'asset_type': asset['type'],
         'quantity': request.quantity,
         'purchase_price': request.purchase_price,
-        'category': request.category,
+        'category': asset['category'],
     }).execute()
 
     if not result.data:
@@ -166,7 +173,7 @@ def add_asset(db: Client, user_id: str, request: AddAssetRequest) -> AssetRespon
     row = result.data[0]
     value = price * request.quantity if price is not None else None
 
-    auto_subscribe(db, user_id, request.category)
+    auto_subscribe(db, user_id, asset['category'])
 
     return AssetResponse(
         id=row['id'],

@@ -46,10 +46,8 @@ class PortfolioRepository {
   Future<PortfolioAsset> addAsset(
     String token, {
     required String symbol,
-    required String type,
     required double quantity,
     required double purchasePrice,
-    String? category,
   }) async {
     final response = await http
         .post(
@@ -57,10 +55,8 @@ class PortfolioRepository {
           headers: _headers(token),
           body: jsonEncode({
             'asset_symbol': symbol,
-            'asset_type': type,
             'quantity': quantity,
             'purchase_price': purchasePrice,
-            if (category != null) 'category': category,
           }),
         )
         .timeout(_timeout);

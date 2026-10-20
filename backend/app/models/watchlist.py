@@ -1,12 +1,10 @@
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, StringConstraints
 
 
 class AddWatchlistRequest(BaseModel):
     asset_symbol: Annotated[str, StringConstraints(min_length=1, max_length=20, strip_whitespace=True)]
-    asset_type: Literal['stock', 'etf', 'crypto', 'bond', 'commodity', 'other']
-    category: Annotated[str | None, StringConstraints(max_length=100)] = None
 
 
 class WatchlistItemResponse(BaseModel):

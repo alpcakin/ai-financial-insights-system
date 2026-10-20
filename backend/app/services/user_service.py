@@ -80,6 +80,7 @@ def change_password(db: Client, user_id: str, current_password: str, new_passwor
         )
 
     db.table("users").update({"password_hash": hash_password(new_password)}).eq("id", user_id).execute()
+    db.table("refresh_tokens").delete().eq("user_id", user_id).execute()
 
 
 def delete_account(db: Client, user_id: str) -> None:

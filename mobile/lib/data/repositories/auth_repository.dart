@@ -51,6 +51,9 @@ class AuthRepository {
         )
         .timeout(_timeout);
 
+    if (response.statusCode == 429) {
+      throw const AuthException('Too many attempts. Please try again later.');
+    }
     if (response.statusCode != 200) {
       throw const AuthException('Failed to send reset email. Please try again.');
     }
