@@ -37,10 +37,20 @@ def build_user_prompt(
     description: str,
     asset_pool: list[str],
     category_list: list[str],
+    other_reports: list[dict] | None = None,
 ) -> str:
+    """``other_reports`` are other outlets' versions of the same event that
+    arrived together. A single-report prompt is unchanged, so analyses stay
+    comparable with the ones made before reports were grouped."""
+    reports = ""
+    if other_reports:
+        lines = "\n".join(
+            f'- {r["source"]}: "{r["title"]}" - "{r["description"]}"' for r in other_reports
+        )
+        reports = f"\n\nOTHER REPORTS OF THE SAME EVENT:\n{lines}"
     return f"""ARTICLE:
 Title: "{title}"
-Description: "{description}"
+Description: "{description}"{reports}
 
 ACTIVE ASSETS IN SYSTEM:
 {json.dumps(asset_pool)}
@@ -110,6 +120,7 @@ def analyze_article(
     asset_pool: list[str],
     category_list: list[str],
     provider: AIProvider | None = None,
+    other_reports: list[dict] | None = None,
 ) -> dict | None:
     """Analyze one article with one provider.
 
@@ -122,7 +133,7 @@ def analyze_article(
             logger.error("analyze_article called with no AI provider configured")
             return None
 
-    user_prompt = build_user_prompt(title, description, asset_pool, category_list)
+    user_prompt = build_user_prompt(title, description, asset_pool, category_list, other_reports)
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
         started = time.perf_counter()
@@ -158,6 +169,7 @@ def analyze_article_all(
     asset_pool: list[str],
     category_list: list[str],
     providers: list[AIProvider] | None = None,
+    other_reports: list[dict] | None = None,
 ) -> dict[str, dict]:
     """Analyze one article with every enabled provider in parallel.
 
@@ -173,7 +185,9 @@ def analyze_article_all(
     results: dict[str, dict] = {}
     with ThreadPoolExecutor(max_workers=len(providers)) as executor:
         futures = {
-            executor.submit(analyze_article, title, description, asset_pool, category_list, p): p
+            executor.submit(
+                analyze_article, title, description, asset_pool, category_list, p, other_reports
+            ): p
             for p in providers
         }
         for future, provider in futures.items():

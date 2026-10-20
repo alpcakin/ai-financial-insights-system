@@ -302,7 +302,9 @@ class _ArticleCard extends StatelessWidget {
                   if (article.source != null)
                     Flexible(
                       child: Text(
-                        _cleanSource(article.source!),
+                        article.sources.length > 1
+                            ? '${_cleanSource(article.source!)} +${article.sources.length - 1}'
+                            : _cleanSource(article.source!),
                         overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
                       ),
@@ -408,8 +410,8 @@ class _ArticleDetailSheet extends StatelessWidget {
     }
   }
 
-  Future<void> _openUrl() async {
-    final uri = Uri.parse(article.url);
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
@@ -598,9 +600,40 @@ class _ArticleDetailSheet extends StatelessWidget {
                 );
               }),
             ],
+            if (article.sources.length > 1) ...[
+              const SizedBox(height: 24),
+              Text(
+                'REPORTED BY ${article.sources.length} OUTLETS',
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFF94A3B8),
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const SizedBox(height: 6),
+              ...article.sources.map(
+                (s) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: Text(
+                    s.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF0F172A)),
+                  ),
+                  subtitle: Text(
+                    s.source ?? '',
+                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                  ),
+                  trailing: const Icon(Icons.open_in_new_rounded, size: 16, color: Color(0xFF94A3B8)),
+                  onTap: () => _openUrl(s.url),
+                ),
+              ),
+            ],
             const SizedBox(height: 24),
             FilledButton(
-              onPressed: _openUrl,
+              onPressed: () => _openUrl(article.url),
               child: Text('Read Full Article', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
             ),
           ],

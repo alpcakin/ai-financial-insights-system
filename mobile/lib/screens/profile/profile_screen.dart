@@ -6,6 +6,7 @@ import '../../data/models/user_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/user_provider.dart';
 import '../privacy/privacy_policy_screen.dart';
+import '../sources/news_sources_screen.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -120,6 +121,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       ),
     );
     if (selected != null) await _selectProvider(selected);
+  }
+
+  void _openNewsSources() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const NewsSourcesScreen()),
+    );
   }
 
   void _openPrivacyPolicy() {
@@ -339,6 +347,20 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500)),
                 trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
                 onTap: _showChangePasswordSheet,
+              ),
+            ),
+
+            const SizedBox(height: 8),
+            _SectionHeader(title: 'About'),
+
+            _SettingsTile(
+              child: ListTile(
+                title: Text('News Sources',
+                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500)),
+                subtitle: Text('Where the news comes from and why',
+                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
+                trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
+                onTap: _openNewsSources,
               ),
             ),
 

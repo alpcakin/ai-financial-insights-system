@@ -9,6 +9,13 @@ class ArticleImpact(BaseModel):
     reason: str
 
 
+class ArticleSource(BaseModel):
+    title: str
+    url: str
+    source: str | None
+    published_at: str | None
+
+
 class FeedArticle(BaseModel):
     id: str
     title: str
@@ -26,6 +33,7 @@ class FeedArticle(BaseModel):
     is_fallback: bool = False
     read: bool
     bookmarked: bool
+    sources: list[ArticleSource] = []
 
 
 class FeedResponse(BaseModel):
@@ -33,3 +41,12 @@ class FeedResponse(BaseModel):
     total: int
     offset: int
     limit: int
+
+
+class NewsSource(BaseModel):
+    outlet: str
+    section: str
+
+
+class NewsSourcesResponse(BaseModel):
+    sources: list[NewsSource]

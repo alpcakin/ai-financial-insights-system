@@ -29,7 +29,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
             ),
             _section(
               'How We Use Your Data',
-              'Your portfolio data is used to match relevant financial news and generate alerts when assets in your portfolio experience significant market events. We do not sell your data to third parties.\n\nNews articles are analyzed by third-party AI services (OpenAI, Google Gemini and xAI Grok, depending on the model you select). Only the article text and the combined list of asset symbols held across all users are sent to these services. Your email address, holdings, quantities and prices are never shared with them.',
+              'Your portfolio data is used to match relevant financial news and generate alerts when assets in your portfolio experience significant market events. We do not sell your data to third parties.\n\nNews articles are analyzed by third-party AI services (OpenAI, Google Gemini, xAI Grok and Anthropic Claude); the model you select decides whose analysis you see. Only the article text and the combined list of asset symbols held across all users are sent to these services. Your email address, holdings, quantities and prices are never shared with them.',
             ),
             _section(
               'Data Storage',
@@ -45,7 +45,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
             ),
             _section(
               'Data Retention',
-              'Your data is retained for as long as your account is active. When you delete your account, all associated data is permanently removed from our systems.',
+              'Your account, portfolio, watchlist and reports are retained for as long as your account is active. News feed entries and alerts are deleted after 30 days, except for bookmarked articles. When you delete your account, all associated data is permanently removed from our systems.',
             ),
             _section(
               'Contact',
@@ -53,7 +53,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Last updated: May 2026',
+              'Last updated: October 2026',
               style: GoogleFonts.inter(
                 fontSize: 12,
                 color: const Color(0xFF94A3B8),

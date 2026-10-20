@@ -163,6 +163,14 @@ def test_get_feed_200(client, mock_db):
     assert r.status_code == 200
 
 
+def test_feed_sources_lists_outlets(client):
+    r = client.get("/feed/sources")
+    assert r.status_code == 200
+    sources = r.json()["sources"]
+    assert {"outlet": "Bloomberg", "section": "Markets"} in sources
+    assert all(set(s) == {"outlet", "section"} for s in sources)
+
+
 def test_mark_read_200(client, mock_db):
     mock_db.table.side_effect = lambda _: chain_mock([])
     r = client.patch("/feed/article-1/read")

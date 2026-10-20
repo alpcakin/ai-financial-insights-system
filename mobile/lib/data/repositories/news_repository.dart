@@ -65,4 +65,20 @@ class NewsRepository {
     final body = _decode(response);
     throw NewsException(body['detail'] as String? ?? 'Failed to mark as read');
   }
+
+  Future<List<NewsSource>> getSources(String token) async {
+    final response = await http
+        .get(Uri.parse('${AppConstants.baseUrl}/feed/sources'), headers: _headers(token))
+        .timeout(_timeout);
+
+    final body = _decode(response);
+
+    if (response.statusCode == 200) {
+      return (body['sources'] as List<dynamic>)
+          .map((e) => NewsSource.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+
+    throw NewsException(body['detail'] as String? ?? 'Failed to load sources');
+  }
 }

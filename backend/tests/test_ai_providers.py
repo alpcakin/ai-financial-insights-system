@@ -8,6 +8,7 @@ import pytest
 import requests
 
 from app.services.ai import ProviderRegistry, build_registry, display_name_for, set_registry
+from app.services.ai.claude import ClaudeProvider, ClaudeRefusal
 from app.services.ai.gemini import GeminiProvider
 from app.services.ai.openai_compatible import OpenAICompatibleProvider
 from tests.conftest import FakeProvider
@@ -56,9 +57,10 @@ def test_registry_infos_marks_default():
 
 def _settings(**overrides):
     base = dict(
-        openai_api_key="", openai_model="gpt-4o-mini",
+        openai_api_key="", openai_model="gpt-6-luna", openai_reasoning_effort="low",
         gemini_api_key="", gemini_model="gemini-3.8-flash",
-        xai_api_key="", xai_base_url="https://api.x.ai/v1", grok_model="grok-3-mini",
+        xai_api_key="", xai_base_url="https://api.x.ai/v1", grok_model="grok-4.20-0309-non-reasoning",
+        anthropic_api_key="", claude_model="claude-haiku-5-5",
         default_ai_provider="openai",
     )
     base.update(overrides)
@@ -69,17 +71,34 @@ def test_build_registry_enables_only_configured_keys():
     reg = build_registry(_settings(openai_api_key="a", xai_api_key="b"))
     assert reg.names() == ["openai", "grok"]
     assert reg.default.name == "openai"
+    openai = reg.get("openai")
+    assert openai.model == "gpt-6-luna"
+    assert openai.display_name == "GPT"
+    assert openai._reasoning_effort == "low"
     grok = reg.get("grok")
     assert isinstance(grok, OpenAICompatibleProvider)
-    assert grok.model == "grok-3-mini"
+    assert grok.model == "grok-4.20-0309-non-reasoning"
     assert grok._base_url == "https://api.x.ai/v1"
+    assert grok._reasoning_effort is None
 
 
-def test_build_registry_all_three():
-    reg = build_registry(_settings(openai_api_key="a", gemini_api_key="b", xai_api_key="c", default_ai_provider="gemini"))
-    assert reg.names() == ["openai", "gemini", "grok"]
+def test_build_registry_empty_effort_falls_back_to_temperature():
+    reg = build_registry(_settings(openai_api_key="a", openai_model="gpt-4o-mini", openai_reasoning_effort=""))
+    assert reg.get("openai")._reasoning_effort is None
+
+
+def test_build_registry_all_four():
+    reg = build_registry(_settings(
+        openai_api_key="a", gemini_api_key="b", xai_api_key="c", anthropic_api_key="d",
+        default_ai_provider="gemini",
+    ))
+    assert reg.names() == ["openai", "gemini", "grok", "claude"]
     assert reg.default.name == "gemini"
     assert isinstance(reg.get("gemini"), GeminiProvider)
+    claude = reg.get("claude")
+    assert isinstance(claude, ClaudeProvider)
+    assert claude.model == "claude-haiku-5-5"
+    assert claude.display_name == "Claude"
 
 
 def test_build_registry_none_configured():
@@ -90,8 +109,8 @@ def test_build_registry_none_configured():
 # ── Display names ────────────────────────────────────────────────────────────
 
 def test_display_name_from_registry():
-    set_registry(ProviderRegistry([FakeProvider("openai", display_name="GPT-4o mini")], "openai"))
-    assert display_name_for("openai") == "GPT-4o mini"
+    set_registry(ProviderRegistry([FakeProvider("openai", display_name="GPT")], "openai"))
+    assert display_name_for("openai") == "GPT"
 
 
 def test_display_name_for_disabled_known_provider():
@@ -122,6 +141,21 @@ def test_openai_compatible_calls_chat_completions_with_json_mode():
     assert kwargs["response_format"] == {"type": "json_object"}
     assert kwargs["messages"][0] == {"role": "system", "content": "sys"}
     assert kwargs["messages"][1] == {"role": "user", "content": "user"}
+    assert kwargs["temperature"] == 0.3
+    assert "reasoning_effort" not in kwargs
+
+
+def test_openai_compatible_sends_reasoning_effort_instead_of_temperature():
+    provider = OpenAICompatibleProvider("openai", "GPT", "gpt-6-luna", api_key="k", reasoning_effort="low")
+    client = MagicMock()
+    client.chat.completions.create.return_value.choices = [MagicMock(message=MagicMock(content="{}"))]
+    provider._client = client
+
+    provider.complete("sys", "user")
+
+    kwargs = client.chat.completions.create.call_args.kwargs
+    assert kwargs["reasoning_effort"] == "low"
+    assert "temperature" not in kwargs
 
 
 def test_openai_compatible_builds_client_with_base_url():
@@ -201,4 +235,63 @@ def test_gemini_defaults():
     provider = GeminiProvider(api_key="k", model="m")
     assert provider.name == "gemini"
     assert provider.display_name == "Gemini"
+    assert provider.info().model == "m"
+
+
+# ── Claude transport ─────────────────────────────────────────────────────────
+
+def _claude_with_response(content, stop_reason="end_turn", stop_details=None):
+    provider = ClaudeProvider(api_key="k", model="claude-haiku-5-5")
+    client = MagicMock()
+    client.messages.create.return_value = SimpleNamespace(
+        content=content, stop_reason=stop_reason, stop_details=stop_details,
+    )
+    provider._client = client
+    return provider, client
+
+
+def test_claude_sends_system_prompt_and_low_effort_without_temperature():
+    provider, client = _claude_with_response([SimpleNamespace(type="text", text=' {"c": 3} ')])
+
+    out = provider.complete("sys", "user")
+
+    assert out == '{"c": 3}'
+    kwargs = client.messages.create.call_args.kwargs
+    assert kwargs["model"] == "claude-haiku-5-5"
+    assert kwargs["system"] == "sys"
+    assert kwargs["messages"] == [{"role": "user", "content": "user"}]
+    assert kwargs["output_config"] == {"effort": "low"}
+    assert kwargs["max_tokens"] == 4096
+    assert "temperature" not in kwargs
+
+
+def test_claude_skips_thinking_blocks():
+    provider, _ = _claude_with_response([
+        SimpleNamespace(type="thinking", thinking="", signature="sig"),
+        SimpleNamespace(type="text", text='{"d": 4}'),
+    ])
+    assert provider.complete("s", "u") == '{"d": 4}'
+
+
+def test_claude_refusal_is_raised_and_not_retried():
+    provider, _ = _claude_with_response(
+        [], stop_reason="refusal", stop_details=SimpleNamespace(category="cyber"),
+    )
+    with pytest.raises(ClaudeRefusal, match="cyber"):
+        provider.complete("s", "u")
+    assert not provider.is_transient(ClaudeRefusal("x"))
+
+
+def test_claude_builds_client_once_with_api_key():
+    provider = ClaudeProvider(api_key="k", model="m")
+    with patch("anthropic.Anthropic") as mock_anthropic:
+        provider._get_client()
+        provider._get_client()
+    mock_anthropic.assert_called_once_with(api_key="k")
+
+
+def test_claude_defaults():
+    provider = ClaudeProvider(api_key="k", model="m")
+    assert provider.name == "claude"
+    assert provider.display_name == "Claude"
     assert provider.info().model == "m"

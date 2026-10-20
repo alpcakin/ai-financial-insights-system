@@ -1,6 +1,8 @@
 from unittest.mock import MagicMock
 
 from app.services.feed_service import (
+    FEED_SELECT,
+    _attach_sources,
     _match_users,
     choose_analysis,
     distribute_article,
@@ -233,3 +235,32 @@ def test_mark_read():
     db = make_db({})
     mark_read(db, "u1", "article-1")
     db.table.assert_called_with("user_news_feed")
+
+
+# ── Sources of a story ───────────────────────────────────────────────────────
+
+def test_feed_never_selects_article_embeddings():
+    assert "articles(*)" not in FEED_SELECT
+    assert "embedding" not in FEED_SELECT
+
+
+def test_attach_sources_lists_lead_first_then_later_reports():
+    db = MagicMock()
+    db.table.return_value = chain_mock([
+        {"duplicate_of": "a1", "title": "CNBC take", "url": "https://cnbc.com/x", "source": "CNBC", "published_at": "2026-10-19T09:00:00+00:00"},
+    ])
+    articles = [dict(ARTICLE), {**ARTICLE, "id": "a2", "url": "http://y.com"}]
+
+    _attach_sources(db, articles)
+
+    assert [s["source"] for s in articles[0]["sources"]] == ["Reuters", "CNBC"]
+    assert articles[0]["sources"][1]["url"] == "https://cnbc.com/x"
+    assert [s["url"] for s in articles[1]["sources"]] == ["http://y.com"]
+    db.table.return_value.in_.assert_called_once_with("duplicate_of", ["a1", "a2"])
+
+
+def test_attach_sources_skips_query_for_empty_page():
+    db = MagicMock()
+    _attach_sources(db, [])
+    db.table.assert_not_called()
+

@@ -35,14 +35,18 @@ def generate_weekly_report(db: Client, user_id: str) -> dict:
 
     feed_result = (
         db.table("user_news_feed")
-        .select("articles(id, title, source, severity, sentiment_label, summary, published_at)")
+        .select("articles(id, title, source, published_at), article_analyses(severity, sentiment_label, summary)")
         .eq("user_id", user_id)
         .gte("created_at", str(period_start))
-        .limit(100)
+        .limit(1000)
         .execute()
     )
 
-    articles_raw = [row["articles"] for row in (feed_result.data or []) if row.get("articles")]
+    articles_raw = [
+        {**row["articles"], **(row.get("article_analyses") or {})}
+        for row in (feed_result.data or [])
+        if row.get("articles")
+    ]
     articles_raw.sort(key=lambda a: a.get("severity") or 0, reverse=True)
 
     top_articles = [

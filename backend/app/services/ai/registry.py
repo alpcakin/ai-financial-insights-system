@@ -7,9 +7,10 @@ logger = logging.getLogger(__name__)
 #: Labels for providers that may appear in stored data even if the provider
 #: is later disabled, so the app can still show who produced an analysis.
 DISPLAY_NAMES = {
-    "openai": "GPT-4o mini",
+    "openai": "GPT",
     "gemini": "Gemini",
     "grok": "Grok",
+    "claude": "Claude",
 }
 
 
@@ -81,6 +82,7 @@ def build_registry(settings) -> ProviderRegistry:
     """Create providers for every vendor that has an API key configured."""
     from app.services.ai.openai_compatible import OpenAICompatibleProvider
     from app.services.ai.gemini import GeminiProvider
+    from app.services.ai.claude import ClaudeProvider
 
     providers: list[AIProvider] = []
 
@@ -90,6 +92,7 @@ def build_registry(settings) -> ProviderRegistry:
             display_name=DISPLAY_NAMES["openai"],
             model=settings.openai_model,
             api_key=settings.openai_api_key,
+            reasoning_effort=settings.openai_reasoning_effort or None,
         ))
 
     if settings.gemini_api_key:
@@ -106,6 +109,13 @@ def build_registry(settings) -> ProviderRegistry:
             model=settings.grok_model,
             api_key=settings.xai_api_key,
             base_url=settings.xai_base_url,
+        ))
+
+    if settings.anthropic_api_key:
+        providers.append(ClaudeProvider(
+            api_key=settings.anthropic_api_key,
+            model=settings.claude_model,
+            display_name=DISPLAY_NAMES["claude"],
         ))
 
     registry = ProviderRegistry(providers, settings.default_ai_provider)

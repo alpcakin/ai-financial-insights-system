@@ -155,7 +155,34 @@ def _merge_feed_row(row: dict, user_provider: str | None) -> dict:
     return article
 
 
-FEED_SELECT = "read, bookmarked, created_at, articles(*), article_analyses(*)"
+# Explicit article columns: articles also carry a 1536-dimension embedding.
+FEED_SELECT = (
+    "read, bookmarked, created_at, "
+    "articles(id, title, url, source, published_at), article_analyses(*)"
+)
+
+
+def _attach_sources(db: Client, articles: list[dict]) -> None:
+    """Give each article the list of outlets reporting it: itself first, then
+    articles that joined its story, oldest first."""
+    if not articles:
+        return
+    lead_ids = [a["id"] for a in articles]
+    result = (
+        db.table("articles")
+        .select("duplicate_of, title, url, source, published_at")
+        .in_("duplicate_of", lead_ids)
+        .order("published_at")
+        .execute()
+    )
+    extra: dict[str, list[dict]] = {}
+    for row in result.data:
+        extra.setdefault(row["duplicate_of"], []).append(
+            {k: row[k] for k in ("title", "url", "source", "published_at")}
+        )
+    for article in articles:
+        own = {k: article.get(k) for k in ("title", "url", "source", "published_at")}
+        article["sources"] = [own] + extra.get(article["id"], [])
 
 
 def get_feed(
@@ -201,6 +228,7 @@ def get_feed(
         page = page_result.data
 
     articles = [_merge_feed_row(r, user_provider) for r in page]
+    _attach_sources(db, articles)
     return {"articles": articles, "total": total, "offset": offset, "limit": limit}
 
 

@@ -61,6 +61,29 @@ void main() {
       expect(article.summary, 'Strong quarter');
     });
 
+    test('parses every outlet that reported the story and keeps them on copyWith', () {
+      final article = FeedArticle.fromJson({
+        ...json,
+        'sources': [
+          {'title': 'Apple beats estimates', 'url': 'https://reuters.com/a', 'source': 'Reuters', 'published_at': '2026-05-01T00:00:00Z'},
+          {'title': 'Apple tops forecasts', 'url': 'https://cnbc.com/a', 'source': 'CNBC', 'published_at': null},
+        ],
+      }).copyWith(read: true);
+      expect(article.sources.map((s) => s.source), ['Reuters', 'CNBC']);
+      expect(article.sources.last.url, 'https://cnbc.com/a');
+      expect(article.sources.last.publishedAt, isNull);
+    });
+
+    test('sources default to empty for older payloads', () {
+      expect(FeedArticle.fromJson(json).sources, isEmpty);
+    });
+
+    test('NewsSource parses outlet and section', () {
+      final source = NewsSource.fromJson({'outlet': 'Bloomberg', 'section': 'Markets'});
+      expect(source.outlet, 'Bloomberg');
+      expect(source.section, 'Markets');
+    });
+
     test('FeedResponse parses paging fields', () {
       final response = FeedResponse.fromJson({
         'articles': [json],
@@ -89,7 +112,7 @@ void main() {
         'created_at': '2026-05-01T00:00:00Z',
       });
       expect(alert.aiProvider, 'openai');
-      expect(alert.aiProviderName, 'GPT-4o mini');
+      expect(alert.aiProviderName, 'GPT');
       expect(alert.isRead, isFalse);
     });
 

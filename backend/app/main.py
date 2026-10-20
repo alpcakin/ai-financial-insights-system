@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime
 import logging
 
 logging.basicConfig(
@@ -20,9 +21,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     from apscheduler.schedulers.background import BackgroundScheduler
     from app.core.database import get_db
-    from app.tasks.news_tasks import process_news_cycle
+    from app.tasks.news_tasks import process_news_cycle, stop_requested
     from app.tasks.report_tasks import generate_weekly_reports
     from app.services.alert_service import generate_volatility_alerts
+    from app.services.retention_service import purge_old_data
     from app.services.ai import get_registry
 
     get_registry()
@@ -53,6 +55,24 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Volatility check scheduled every %d min", settings.volatility_check_interval_minutes)
 
+    if settings.retention_days > 0:
+        def _retention():
+            try:
+                purge_old_data(get_db())
+            except Exception as e:
+                logger.error("Retention cleanup failed: %s", e)
+
+        # Runs at startup as well, because a backend on a laptop is rarely up
+        # at a fixed hour every night.
+        scheduler.add_job(
+            _retention,
+            "interval",
+            hours=24,
+            next_run_time=datetime.now(),
+            misfire_grace_time=3600,
+        )
+        logger.info("Retention cleanup scheduled daily, keeping %d days", settings.retention_days)
+
     scheduler.add_job(
         generate_weekly_reports,
         "cron",
@@ -65,6 +85,7 @@ async def lifespan(app: FastAPI):
 
     scheduler.start()
     yield
+    stop_requested.set()
     scheduler.shutdown()
 
 

@@ -33,11 +33,13 @@ class AlertItem {
       case null:
         return null;
       case 'openai':
-        return 'GPT-4o mini';
+        return 'GPT';
       case 'gemini':
         return 'Gemini';
       case 'grok':
         return 'Grok';
+      case 'claude':
+        return 'Claude';
       default:
         return aiProvider;
     }

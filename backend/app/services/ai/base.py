@@ -21,7 +21,7 @@ class AIProvider(ABC):
 
     #: Stable key stored in the database and chosen by users, e.g. "openai".
     name: str
-    #: Human readable label shown in the app, e.g. "GPT-4o mini".
+    #: Human readable label shown in the app, e.g. "Claude".
     display_name: str
     #: Vendor model identifier actually called.
     model: str

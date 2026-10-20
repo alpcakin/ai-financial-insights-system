@@ -43,6 +43,34 @@ def test_generate_weekly_success(mock_ticker):
 
 
 @patch("app.services.report_service.yf.Ticker")
+def test_generate_weekly_ranks_articles_by_the_users_analysis(_ticker):
+    feed = chain_mock([
+        {"articles": {"id": "a1", "title": "Low", "source": "CNBC", "published_at": "2026-10-19T08:00:00+00:00"},
+         "article_analyses": {"severity": 4, "sentiment_label": "neutral", "summary": "s1"}},
+        {"articles": {"id": "a2", "title": "High", "source": "WSJ", "published_at": "2026-10-19T09:00:00+00:00"},
+         "article_analyses": {"severity": 8, "sentiment_label": "negative", "summary": "s2"}},
+        {"articles": {"id": "a3", "title": "No analysis", "source": "WSJ", "published_at": None},
+         "article_analyses": None},
+    ])
+    feed.limit.return_value = feed
+    calls = [chain_mock([]), feed, chain_mock([]), chain_mock([EXISTING_REPORT])]
+    db = MagicMock()
+    db.table.side_effect = lambda _: calls.pop(0) if calls else chain_mock([])
+
+    result = generate_weekly_report(db, "u1")
+
+    top = result["content"]["top_articles"]
+    assert [a["id"] for a in top] == ["a2", "a1", "a3"]
+    assert top[0] == {
+        "id": "a2", "title": "High", "source": "WSJ", "severity": 8, "sentiment_label": "negative",
+        "summary": "s2", "published_at": "2026-10-19T09:00:00+00:00",
+    }
+    articles_part, analyses_part = feed.select.call_args.args[0].split("article_analyses")
+    assert "severity" not in articles_part
+    assert "severity" in analyses_part
+
+
+@patch("app.services.report_service.yf.Ticker")
 def test_generate_weekly_idempotent(mock_ticker):
     db = MagicMock()
     db.table.side_effect = lambda _: chain_mock([EXISTING_REPORT])

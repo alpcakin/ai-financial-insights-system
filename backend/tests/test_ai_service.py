@@ -34,6 +34,31 @@ def test_prompt_contains_article_and_pools():
     assert '"Software"' in prompt
 
 
+def test_prompt_lists_other_reports_of_the_same_event():
+    prompt = build_user_prompt("Apple beats", "Strong quarter", ASSET_POOL, CATEGORY_LIST, [
+        {"source": "CNBC", "title": "Apple tops forecasts", "description": "iPhone sales up"},
+    ])
+    assert 'OTHER REPORTS OF THE SAME EVENT:\n- CNBC: "Apple tops forecasts" - "iPhone sales up"' in prompt
+
+
+def test_single_report_prompt_is_unchanged_by_grouping():
+    single = build_user_prompt("Apple beats", "Strong quarter", ASSET_POOL, CATEGORY_LIST)
+    assert single == build_user_prompt("Apple beats", "Strong quarter", ASSET_POOL, CATEGORY_LIST, [])
+    assert "OTHER REPORTS" not in single
+
+
+def test_analyze_all_passes_other_reports_to_every_provider():
+    reports = [{"source": "CNBC", "title": "t", "description": "d"}]
+    providers = [FakeProvider("openai", [json.dumps(VALID_RESPONSE)]), FakeProvider("gemini", [json.dumps(VALID_RESPONSE)])]
+    prompts = []
+    for p in providers:
+        original = p.complete
+        p.complete = lambda system, user, _orig=original: (prompts.append(user), _orig(system, user))[1]
+    analyze_article_all("Title", "Description", ASSET_POOL, CATEGORY_LIST, providers, other_reports=reports)
+    assert len(prompts) == 2
+    assert all('- CNBC: "t" - "d"' in prompt for prompt in prompts)
+
+
 def test_analyze_success_with_explicit_provider():
     provider = FakeProvider("gemini", [json.dumps(VALID_RESPONSE)])
     result = analyze_article("Title", "Description", ASSET_POOL, CATEGORY_LIST, provider)

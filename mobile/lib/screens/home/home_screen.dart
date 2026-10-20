@@ -110,7 +110,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
+  Future<bool> _confirmRemove(String title, String message) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title, style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+        content: Text(
+          message,
+          style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFFEF4444)),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
   Future<bool> _deletePortfolioAsset(PortfolioAsset asset) async {
+    final confirmed = await _confirmRemove(
+      'Remove ${asset.assetSymbol}?',
+      '${asset.assetSymbol} will be removed from your portfolio.',
+    );
+    if (!confirmed || !mounted) return false;
     final token = ref.read(authProvider).token ?? '';
     try {
       await ref.read(portfolioProvider.notifier).remove(token, id: asset.id);
@@ -125,6 +155,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Future<bool> _deleteWatchlistItem(WatchlistItem item) async {
+    final confirmed = await _confirmRemove(
+      'Stop watching ${item.assetSymbol}?',
+      '${item.assetSymbol} will be removed from your watchlist.',
+    );
+    if (!confirmed || !mounted) return false;
     final token = ref.read(authProvider).token ?? '';
     try {
       await ref.read(watchlistProvider.notifier).remove(token, id: item.id);

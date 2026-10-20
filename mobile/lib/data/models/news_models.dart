@@ -19,6 +19,41 @@ class AssetImpact {
       );
 }
 
+/// One outlet's report of a story, the story's own article first.
+class ArticleSource {
+  final String title;
+  final String url;
+  final String? source;
+  final String? publishedAt;
+
+  const ArticleSource({
+    required this.title,
+    required this.url,
+    this.source,
+    this.publishedAt,
+  });
+
+  factory ArticleSource.fromJson(Map<String, dynamic> json) => ArticleSource(
+        title: json['title'] as String,
+        url: json['url'] as String,
+        source: json['source'] as String?,
+        publishedAt: json['published_at'] as String?,
+      );
+}
+
+/// A feed the backend reads news from, shown on the sources screen.
+class NewsSource {
+  final String outlet;
+  final String section;
+
+  const NewsSource({required this.outlet, required this.section});
+
+  factory NewsSource.fromJson(Map<String, dynamic> json) => NewsSource(
+        outlet: json['outlet'] as String,
+        section: json['section'] as String,
+      );
+}
+
 class FeedArticle {
   final String id;
   final String title;
@@ -43,6 +78,9 @@ class FeedArticle {
   final bool read;
   final bool bookmarked;
 
+  /// Every outlet that reported this story; one entry when only one did.
+  final List<ArticleSource> sources;
+
   const FeedArticle({
     required this.id,
     required this.title,
@@ -60,6 +98,7 @@ class FeedArticle {
     this.isFallback = false,
     required this.read,
     required this.bookmarked,
+    this.sources = const [],
   });
 
   FeedArticle copyWith({bool? read}) => FeedArticle(
@@ -79,6 +118,7 @@ class FeedArticle {
         isFallback: isFallback,
         read: read ?? this.read,
         bookmarked: bookmarked,
+        sources: sources,
       );
 
   factory FeedArticle.fromJson(Map<String, dynamic> json) {
@@ -111,6 +151,9 @@ class FeedArticle {
       isFallback: json['is_fallback'] as bool? ?? false,
       read: json['read'] as bool? ?? false,
       bookmarked: json['bookmarked'] as bool? ?? false,
+      sources: (json['sources'] as List<dynamic>? ?? [])
+          .map((e) => ArticleSource.fromJson(e as Map<String, dynamic>))
+          .toList(),
     );
   }
 }

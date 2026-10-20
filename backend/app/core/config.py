@@ -7,22 +7,35 @@ class Settings(BaseSettings):
     supabase_service_key: str
     supabase_anon_key: str
 
-    mediastack_api_key: str
-
     # AI providers. A provider is enabled when its API key is set.
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-6-luna"
+    # Leave empty for models without reasoning, such as gpt-4o-mini; they
+    # get temperature 0.3 instead.
+    openai_reasoning_effort: str = "low"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.8-flash"
     xai_api_key: str = ""
     xai_base_url: str = "https://api.x.ai/v1"
-    grok_model: str = "grok-3-mini"
+    grok_model: str = "grok-4.20-0309-non-reasoning"
+    anthropic_api_key: str = ""
+    claude_model: str = "claude-haiku-5-5"
     # Provider used for new accounts and as the fallback when a user's
     # chosen provider produced no analysis for an article.
     default_ai_provider: str = "openai"
 
     news_fetch_interval_minutes: int = 0
-    mediastack_page_size: int = 100
+
+    # Same-event detection (app.services.dedup_service). Similarity at or above
+    # the auto threshold joins a story outright; between the two thresholds
+    # the default provider decides.
+    dedup_auto_threshold: float = 0.85
+    dedup_candidate_threshold: float = 0.65
+    dedup_window_hours: int = 48
+
+    # Feed entries, alerts and stories older than this are deleted once a
+    # day (app.services.retention_service); 0 disables the cleanup.
+    retention_days: int = 30
 
     volatility_check_interval_minutes: int = 0
 
