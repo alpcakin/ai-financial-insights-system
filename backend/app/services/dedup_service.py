@@ -4,7 +4,10 @@ Groups articles that report the same event, so each event is analyzed once.
 An event ("story") is represented by its first article, the lead. A new
 article is compared only with leads, never with other members, so a story
 cannot drift from one event to another through a chain of similar articles.
-Measurements behind the thresholds: DEVELOPMENT_JOURNAL.md, section 2.14.
+Embedding similarity only picks the candidates; the judge decides every
+match, because recurring reports (daily roundups, price updates) are nearly
+identical text from one day to the next. Measurements behind this:
+DEVELOPMENT_JOURNAL.md, sections 2.14 and 2.29.
 """
 
 import logging
@@ -23,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 
-#: Leads shown to the judge when no candidate is similar enough to match outright.
+#: Closest leads shown to the judge.
 MAX_CANDIDATES = 3
 
 JUDGE_SYSTEM_PROMPT = "You decide whether financial news reports describe the same event."
@@ -75,19 +78,35 @@ def _stored_candidates(db: Client, embedding: list[float], since: datetime) -> l
             "source": row["source"],
             "title": row["title"],
             "description": row["description"] or "",
+            "published_at": row["published_at"],
             "similarity": row["similarity"],
         }
         for row in result.data
     ]
 
 
+def _published(report: dict) -> datetime | None:
+    value = report.get("published_at")
+    return datetime.fromisoformat(value).astimezone(timezone.utc) if value else None
+
+
+def _describe(report: dict, new_report_time: datetime | None = None) -> str:
+    published = _published(report)
+    if published is None:
+        when = "Publication time unknown."
+    elif new_report_time is None:
+        when = f"Published {published:%Y-%m-%d %H:%M} UTC."
+    else:
+        hours = abs(new_report_time - published).total_seconds() / 3600
+        when = f"Published {published:%Y-%m-%d %H:%M} UTC ({hours:.0f} h apart)."
+    return f'{when} {report["source"]}: "{report["title"]}" - "{report["description"]}"'
+
+
 def build_judge_prompt(article: dict, candidates: list[dict]) -> str:
-    earlier = "\n".join(
-        f'{i}. {c["source"]}: "{c["title"]}" - "{c["description"]}"'
-        for i, c in enumerate(candidates, 1)
-    )
+    new_report_time = _published(article)
+    earlier = "\n".join(f"{i}. {_describe(c, new_report_time)}" for i, c in enumerate(candidates, 1))
     return f"""NEW REPORT:
-{article["source"]}: "{article["title"]}" - "{article["description"]}"
+{_describe(article)}
 
 EARLIER REPORTS:
 {earlier}
@@ -95,6 +114,7 @@ EARLIER REPORTS:
 Does the new report describe the same event as one of the earlier reports?
 - Same event: one specific occurrence, such as an announcement, deal, ruling, data release or market move, reported by different outlets or rewritten by the same outlet.
 - Not the same event: a follow-up that reports a new development, different news about the same company or topic, or a recurring report (market wrap, price update, list of movers) from a different day or session.
+- A preview of a scheduled event (a budget, a rate decision, company results) and the report of its outcome are different events.
 
 Respond ONLY with valid JSON: {{"match": <number of the earlier report that describes the same event, or 0 if none>}}"""
 
@@ -147,6 +167,7 @@ def assign_stories(db: Client, articles: list[dict]) -> tuple[list[Story], list[
                 "source": story.lead["source"],
                 "title": story.lead["title"],
                 "description": story.lead["description"],
+                "published_at": story.lead["published_at"],
                 "similarity": _cosine(embedding, story.lead["embedding"]),
             }
             for story in stories
@@ -158,9 +179,7 @@ def assign_stories(db: Client, articles: list[dict]) -> tuple[list[Story], list[
         )[:MAX_CANDIDATES]
 
         match = None
-        if candidates and candidates[0]["similarity"] >= settings.dedup_auto_threshold:
-            match = candidates[0]
-        elif candidates:
+        if candidates:
             index = judge_same_event(article, candidates)
             if index is not None:
                 match = candidates[index]

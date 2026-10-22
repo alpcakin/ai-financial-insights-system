@@ -24,7 +24,6 @@ void main() {
       'analyzed_by_name': 'Gemini',
       'is_fallback': true,
       'read': false,
-      'bookmarked': false,
     };
 
     test('parses analysis fields and provider badge data', () {

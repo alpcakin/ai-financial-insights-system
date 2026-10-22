@@ -28,13 +28,13 @@ To add a provider: subclass `AIProvider` with a `complete(system_prompt, user_pr
 Every `NEWS_FETCH_INTERVAL_MINUTES` (15 is a good value) the backend runs one cycle (`backend/app/tasks/news_tasks.py`):
 
 1. **Fetch** (`news_service.py`): the feeds in `FEEDS` are read with conditional requests, so an unchanged feed costs a 304. Items older than 24 hours, sponsored items and non-web links are dropped; URLs are normalized so the same article reached through two feeds is seen once.
-2. **Group** (`dedup_service.py`): each new article is embedded (`text-embedding-3-small`) and compared with the first article ("lead") of every story stored in the last 48 hours, and with stories started earlier in the same cycle. Similarity at or above `DEDUP_AUTO_THRESHOLD` (0.85) joins a story outright; between `DEDUP_CANDIDATE_THRESHOLD` (0.65) and that, the default provider is asked which of the three closest stories, if any, reports the same event.
+2. **Group** (`dedup_service.py`): each new article is embedded (`text-embedding-3-small`) and compared with the first article ("lead") of every story stored in the last 48 hours, and with stories started earlier in the same cycle. The three closest stories at or above `DEDUP_CANDIDATE_THRESHOLD` (0.65) go to the default provider, which is shown when each report was published and decides which story, if any, reports the same event. Similarity alone never joins a story: recurring reports such as daily roundups read almost the same from one day to the next.
 3. **Analyze**: a new story is analyzed once by every provider. Reports of it that arrived in the same cycle go into the same prompt. Reports that arrive later are attached as extra sources: no new analysis, no new notification.
 4. **Distribute**: stories with severity 4 or above reach users through their portfolio and followed topics. Stories below that are stored but not shown.
 
 The feed returns every outlet that reported a story (`sources`), and `GET /feed/sources` lists the feeds for the app's News Sources screen.
 
-Once a day, feed entries and alerts older than `RETENTION_DAYS` (30) are deleted, except bookmarked entries, together with stories no feed entry points to any more (`purge_old_data`, migration 015).
+Once a day, feed entries and alerts older than `RETENTION_DAYS` (30) are deleted, together with stories no feed entry points to any more (`purge_old_data`, migrations 015 and 019).
 
 ## Assets and accounts
 
@@ -123,5 +123,7 @@ Run the migration files in order against your Supabase project. The number prefi
 | `015_retention.sql` | `purge_old_data` function for the daily cleanup of old feed entries, alerts and stories |
 | `016_hash_one_time_tokens.sql` | hashes pending email verification and password reset tokens in place (data only, no schema change) |
 | `017_feed_fallback_flag.sql` | `is_fallback` on feed entries, set at delivery; backfills existing entries |
+| `018_story_leads_published_at.sql` | `match_story_leads` also returns `published_at` for the same-event judge (apply with the backend stopped) |
+| `019_remove_bookmarks.sql` | drops the never-used `user_news_feed.bookmarked`; the cleanup no longer keeps bookmarked entries |
 
 Row-level security is enabled on every user-owned table. The backend connects with the service role key and is therefore not restricted by those policies; access control is enforced in the API layer through JWT authentication. RLS exists as a second line of defence so that a leaked anon key, or any client talking to Supabase directly, can only reach the rows of the authenticated user.

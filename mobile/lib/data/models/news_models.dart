@@ -76,7 +76,6 @@ class FeedArticle {
   /// True when the user's chosen provider had no analysis and another was used.
   final bool isFallback;
   final bool read;
-  final bool bookmarked;
 
   /// Every outlet that reported this story; one entry when only one did.
   final List<ArticleSource> sources;
@@ -97,7 +96,6 @@ class FeedArticle {
     this.analyzedByName,
     this.isFallback = false,
     required this.read,
-    required this.bookmarked,
     this.sources = const [],
   });
 
@@ -117,7 +115,6 @@ class FeedArticle {
         analyzedByName: analyzedByName,
         isFallback: isFallback,
         read: read ?? this.read,
-        bookmarked: bookmarked,
         sources: sources,
       );
 
@@ -150,7 +147,6 @@ class FeedArticle {
       analyzedByName: json['analyzed_by_name'] as String?,
       isFallback: json['is_fallback'] as bool? ?? false,
       read: json['read'] as bool? ?? false,
-      bookmarked: json['bookmarked'] as bool? ?? false,
       sources: (json['sources'] as List<dynamic>? ?? [])
           .map((e) => ArticleSource.fromJson(e as Map<String, dynamic>))
           .toList(),

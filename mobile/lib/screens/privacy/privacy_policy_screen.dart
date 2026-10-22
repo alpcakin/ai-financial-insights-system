@@ -45,7 +45,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
             ),
             _section(
               'Data Retention',
-              'Your account, portfolio, watchlist and reports are retained for as long as your account is active. News feed entries and alerts are deleted after 30 days, except for bookmarked articles. When you delete your account, all associated data is permanently removed from our systems.',
+              'Your account, portfolio, watchlist and reports are retained for as long as your account is active. News feed entries and alerts are deleted after 30 days. When you delete your account, all associated data is permanently removed from our systems.',
             ),
             _section(
               'Contact',

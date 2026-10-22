@@ -32,7 +32,6 @@ class FeedArticle(BaseModel):
     analyzed_by_name: str | None = None
     is_fallback: bool = False
     read: bool
-    bookmarked: bool
     sources: list[ArticleSource] = []
 
 

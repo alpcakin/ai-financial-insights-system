@@ -14,8 +14,16 @@ E_050 = [0.5, 0.0, 0.866]    # 0.50 to E_BASE
 E_OTHER = [0.0, 0.0, 1.0]
 
 
-def _article(title, url=None):
-    return {"title": title, "url": url or f"https://x.com/{title}", "description": f"{title} details", "source": "Bloomberg"}
+def _article(title, url=None, published_at="2026-10-21T08:00:00+00:00"):
+    return {
+        "title": title, "url": url or f"https://x.com/{title}", "description": f"{title} details",
+        "source": "Bloomberg", "published_at": published_at,
+    }
+
+
+def _stored(lead_id, similarity, title="old", published_at="2026-10-21T06:00:00+00:00"):
+    return {"id": lead_id, "title": title, "description": "", "source": "CNBC",
+            "published_at": published_at, "similarity": similarity}
 
 
 def _db(stored=None):
@@ -38,8 +46,9 @@ def test_unrelated_articles_become_separate_stories():
     assert a["embedding"] == E_BASE
 
 
-def test_very_similar_article_in_same_cycle_joins_the_story():
+def test_similar_article_in_same_cycle_joins_the_story_the_judge_picks():
     a, b = _article("a"), _article("b")
+    set_registry(ProviderRegistry([FakeProvider("openai", [json.dumps({"match": 1})])], "openai"))
     stories, _ = _run([a, b], [E_BASE, E_090])
     assert len(stories) == 1
     assert stories[0].lead is a
@@ -47,18 +56,23 @@ def test_very_similar_article_in_same_cycle_joins_the_story():
     assert round(b["duplicate_similarity"], 2) == 0.90
 
 
-def test_very_similar_article_attaches_to_stored_lead_without_judge():
-    stored = [{"id": "lead-1", "title": "old", "description": "", "source": "CNBC", "similarity": 0.91}]
-    judge = FakeProvider("openai")
+def test_very_similar_article_still_needs_the_judge():
+    judge = FakeProvider("openai", [json.dumps({"match": 0})])
     set_registry(ProviderRegistry([judge], "openai"))
-    stories, attachments = _run([_article("a")], [E_BASE], db=_db(stored))
+    stories, attachments = _run([_article("a")], [E_BASE], db=_db([_stored("lead-1", 0.97)]))
+    assert len(stories) == 1 and attachments == []
+    assert judge.calls == 1
+
+
+def test_judge_match_attaches_to_stored_lead():
+    set_registry(ProviderRegistry([FakeProvider("openai", [json.dumps({"match": 1})])], "openai"))
+    stories, attachments = _run([_article("a")], [E_BASE], db=_db([_stored("lead-1", 0.91)]))
     assert stories == []
     assert [(x.lead_id, x.similarity) for x in attachments] == [("lead-1", 0.91)]
-    assert judge.calls == 0
 
 
 def test_borderline_candidate_asks_judge_and_follows_its_answer():
-    stored = [{"id": "lead-1", "title": "old", "description": "d", "source": "CNBC", "similarity": 0.72}]
+    stored = [_stored("lead-1", 0.72)]
     judge = FakeProvider("openai", [json.dumps({"match": 1})])
     set_registry(ProviderRegistry([judge], "openai"))
     _, attachments = _run([_article("a")], [E_BASE], db=_db(stored))
@@ -84,7 +98,7 @@ def test_judge_failure_or_nonsense_makes_a_new_story():
 
 
 def test_candidates_below_threshold_are_ignored():
-    stored = [{"id": "lead-1", "title": "old", "description": "", "source": "CNBC", "similarity": 0.60}]
+    stored = [_stored("lead-1", 0.60)]
     judge = FakeProvider("openai")
     set_registry(ProviderRegistry([judge], "openai"))
     stories, attachments = _run([_article("a"), _article("b")], [E_BASE, E_050], db=_db(stored))
@@ -92,24 +106,24 @@ def test_candidates_below_threshold_are_ignored():
     assert judge.calls == 0
 
 
-def test_best_candidate_wins_between_stored_and_same_cycle_leads():
-    stored = [{"id": "lead-1", "title": "old", "description": "", "source": "CNBC", "similarity": 0.86}]
+def test_judge_sees_stored_and_same_cycle_leads_closest_first():
+    stored = [_stored("lead-1", 0.86)]
     db = _db(stored)
     db.rpc.return_value.execute.side_effect = [
         MagicMock(data=[]),      # first article: nothing stored is close
         MagicMock(data=stored),  # second article: stored lead at 0.86, same-cycle lead at 0.90
     ]
+    set_registry(ProviderRegistry([FakeProvider("openai", [json.dumps({"match": 1})])], "openai"))
     a, b = _article("a"), _article("b")
-    stories, attachments = _run([a, b], [E_BASE, E_090], db=db)
+    with patch("app.services.dedup_service.judge_same_event", wraps=judge_same_event) as spy:
+        stories, attachments = _run([a, b], [E_BASE, E_090], db=db)
+    assert [c.get("lead_id", "same cycle") for c in spy.call_args.args[1]] == ["same cycle", "lead-1"]
     assert stories[0].members == [b]
     assert attachments == []
 
 
 def test_judge_sees_at_most_three_candidates():
-    stored = [
-        {"id": f"lead-{i}", "title": f"t{i}", "description": "", "source": "CNBC", "similarity": s}
-        for i, s in enumerate([0.80, 0.78, 0.70, 0.69])
-    ]
+    stored = [_stored(f"lead-{i}", s, title=f"t{i}") for i, s in enumerate([0.80, 0.78, 0.70, 0.69])]
     judge = FakeProvider("openai", [json.dumps({"match": 0})])
     set_registry(ProviderRegistry([judge], "openai"))
     with patch("app.services.dedup_service.judge_same_event", wraps=judge_same_event) as spy:
@@ -158,14 +172,23 @@ def test_embed_articles_embeds_title_and_description():
     assert kwargs["input"] == ["a. a details"]
 
 
-def test_judge_prompt_numbers_candidates():
+def test_judge_prompt_numbers_candidates_with_publication_times():
     prompt = build_judge_prompt(_article("new"), [
-        {"source": "CNBC", "title": "first", "description": "d1"},
-        {"source": "WSJ", "title": "second", "description": "d2"},
+        {"source": "CNBC", "title": "first", "description": "d1", "published_at": "2026-10-21T06:30:00+00:00"},
+        {"source": "WSJ", "title": "second", "description": "d2", "published_at": "2026-10-20T07:00:00Z"},
     ])
-    assert '1. CNBC: "first" - "d1"' in prompt
-    assert '2. WSJ: "second" - "d2"' in prompt
+    assert 'Published 2026-10-21 08:00 UTC. Bloomberg: "new" - "new details"' in prompt
+    assert '1. Published 2026-10-21 06:30 UTC (2 h apart). CNBC: "first" - "d1"' in prompt
+    assert '2. Published 2026-10-20 07:00 UTC (25 h apart). WSJ: "second" - "d2"' in prompt
     assert '"match"' in prompt
+
+
+def test_judge_prompt_converts_times_to_utc_and_handles_a_missing_one():
+    prompt = build_judge_prompt(_article("new", published_at=None), [
+        {"source": "CNBC", "title": "first", "description": "d1", "published_at": "2026-10-21T10:30:00+02:00"},
+    ])
+    assert 'NEW REPORT:\nPublication time unknown. Bloomberg: "new"' in prompt
+    assert '1. Published 2026-10-21 08:30 UTC. CNBC: "first" - "d1"' in prompt
 
 
 def test_judge_without_provider_returns_none():

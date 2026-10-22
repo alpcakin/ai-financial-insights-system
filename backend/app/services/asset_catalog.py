@@ -145,9 +145,10 @@ ASSETS = [
     {"symbol": "SHIB-USD", "name": "Shiba Inu", "type": "crypto", "category": "Altcoins"},
     {"symbol": "TRX-USD", "name": "TRON", "type": "crypto", "category": "Altcoins"},
     {"symbol": "TON-USD", "name": "Toncoin", "type": "crypto", "category": "Altcoins"},
-    {"symbol": "MATIC-USD", "name": "Polygon", "type": "crypto", "category": "DeFi"},
+    # Yahoo symbols for Polygon (renamed from MATIC in 2024) and Uniswap.
+    {"symbol": "POL28321-USD", "name": "Polygon (POL)", "type": "crypto", "category": "DeFi"},
     {"symbol": "LINK-USD", "name": "Chainlink", "type": "crypto", "category": "DeFi"},
-    {"symbol": "UNI-USD", "name": "Uniswap", "type": "crypto", "category": "DeFi"},
+    {"symbol": "UNI7083-USD", "name": "Uniswap", "type": "crypto", "category": "DeFi"},
     {"symbol": "OP-USD", "name": "Optimism", "type": "crypto", "category": "DeFi"},
     {"symbol": "ARB-USD", "name": "Arbitrum", "type": "crypto", "category": "DeFi"},
     # Commodities

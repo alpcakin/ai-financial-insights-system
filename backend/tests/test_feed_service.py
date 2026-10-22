@@ -191,7 +191,7 @@ def test_get_feed_no_filter_merges_analysis_and_reads_fallback_flag():
 
     page_mock = MagicMock()
     page_mock.execute.return_value.data = [
-        {"read": False, "bookmarked": False, "is_fallback": True, "created_at": "2026-04-28",
+        {"read": False, "is_fallback": True, "created_at": "2026-04-28",
          "articles": ARTICLE, "article_analyses": ANALYSIS}
     ]
 
@@ -224,7 +224,7 @@ def test_get_feed_keeps_delivery_flag_after_model_change():
     user's current model no longer matters."""
     db = MagicMock()
     db.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = [
-        {"read": True, "bookmarked": False, "is_fallback": False, "created_at": "2026-04-28",
+        {"read": True, "is_fallback": False, "created_at": "2026-04-28",
          "articles": ARTICLE, "article_analyses": ANALYSIS},
     ]
     result = get_feed(db, "u1", 20, 0, "Tech")
@@ -237,9 +237,9 @@ def test_get_feed_category_filter_uses_analysis_categories():
     fin = {**ANALYSIS, "id": "an2", "related_categories": ["Finance"]}
     db = MagicMock()
     db.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = [
-        {"read": False, "bookmarked": False, "created_at": "2026-04-28",
+        {"read": False, "created_at": "2026-04-28",
          "articles": {**ARTICLE, "title": "Tech"}, "article_analyses": ANALYSIS},
-        {"read": False, "bookmarked": False, "created_at": "2026-04-28",
+        {"read": False, "created_at": "2026-04-28",
          "articles": {**ARTICLE, "id": "a2", "title": "Finance"}, "article_analyses": fin},
     ]
     result = get_feed(db, "u1", 20, 0, "Tech")
@@ -250,7 +250,7 @@ def test_get_feed_category_filter_uses_analysis_categories():
 def test_get_feed_row_without_analysis():
     db = MagicMock()
     db.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = [
-        {"read": False, "bookmarked": False, "created_at": "2026-04-28",
+        {"read": False, "created_at": "2026-04-28",
          "articles": ARTICLE, "article_analyses": None},
     ]
     result = get_feed(db, "u1", 20, 0, "Tech")

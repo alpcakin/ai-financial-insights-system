@@ -157,13 +157,12 @@ def _merge_feed_row(row: dict) -> dict:
     article["analyzed_by_name"] = display_name_for(provider) if provider else None
     article["is_fallback"] = row.get("is_fallback", False)
     article["read"] = row["read"]
-    article["bookmarked"] = row["bookmarked"]
     return article
 
 
 # Explicit article columns: articles also carry a 1536-dimension embedding.
 FEED_SELECT = (
-    "read, bookmarked, is_fallback, created_at, "
+    "read, is_fallback, created_at, "
     "articles(id, title, url, source, published_at), article_analyses(*)"
 )
 

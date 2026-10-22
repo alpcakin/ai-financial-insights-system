@@ -11,8 +11,7 @@ logger = logging.getLogger(__name__)
 def purge_old_data(db: Client) -> dict:
     """Delete feed entries, alerts and stories older than RETENTION_DAYS.
 
-    The deletion itself is the ``purge_old_data`` function from migration 015;
-    bookmarked feed entries and the stories they point to are kept.
+    The deletion itself is the ``purge_old_data`` function (migrations 015 and 019).
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=settings.retention_days)
     result = db.rpc("purge_old_data", {"cutoff": cutoff.isoformat()}).execute()
