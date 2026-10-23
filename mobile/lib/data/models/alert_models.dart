@@ -82,3 +82,46 @@ class AlertsResponse {
         limit: json['limit'] as int,
       );
 }
+
+/// Volatility alert choice for one portfolio or watchlist asset. Assets
+/// without a stored choice use the default threshold ([isAutomatic]).
+class AlertSetting {
+  final String assetSymbol;
+
+  /// 'auto', 'percent' or 'off'.
+  final String mode;
+  final double? thresholdPct;
+
+  const AlertSetting({
+    required this.assetSymbol,
+    required this.mode,
+    this.thresholdPct,
+  });
+
+  const AlertSetting.automatic(this.assetSymbol)
+      : mode = 'auto',
+        thresholdPct = null;
+
+  bool get isAutomatic => mode == 'auto';
+
+  /// [thresholdPct] without trailing zeros, e.g. "5" or "2.5".
+  String? get thresholdText =>
+      thresholdPct?.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), '');
+
+  String get label {
+    switch (mode) {
+      case 'percent':
+        return '±$thresholdText%';
+      case 'off':
+        return 'Off';
+      default:
+        return 'Automatic';
+    }
+  }
+
+  factory AlertSetting.fromJson(Map<String, dynamic> json) => AlertSetting(
+        assetSymbol: json['asset_symbol'] as String,
+        mode: json['mode'] as String,
+        thresholdPct: (json['threshold_pct'] as num?)?.toDouble(),
+      );
+}

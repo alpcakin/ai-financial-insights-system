@@ -38,7 +38,7 @@ def _pipeline_db():
     def t(name):
         m = chain_mock([])
         if name == "portfolio":
-            m.execute.return_value.data = [{"asset_symbol": "AAPL"}]
+            m.execute.return_value.data = [{"user_id": "u1", "asset_symbol": "AAPL"}]
         elif name == "categories":
             m.execute.return_value.data = [{"name": "Technology"}]
         elif name == "articles":

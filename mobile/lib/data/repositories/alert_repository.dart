@@ -62,6 +62,53 @@ class AlertRepository {
     throw AlertException(body['detail'] as String? ?? 'Failed to mark alerts as read');
   }
 
+  Future<List<AlertSetting>> getSettings(String token) async {
+    final response = await http
+        .get(
+          Uri.parse('${AppConstants.baseUrl}/alerts/settings'),
+          headers: _headers(token),
+        )
+        .timeout(_timeout);
+
+    final body = _decode(response);
+
+    if (response.statusCode == 200) {
+      return (body['settings'] as List<dynamic>)
+          .map((e) => AlertSetting.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+
+    throw AlertException(
+        body['detail'] as String? ?? 'Failed to load alert settings');
+  }
+
+  Future<AlertSetting> updateSetting(
+    String token,
+    String symbol, {
+    required String mode,
+    double? thresholdPct,
+  }) async {
+    final response = await http
+        .put(
+          Uri.parse(
+              '${AppConstants.baseUrl}/alerts/settings/${Uri.encodeComponent(symbol)}'),
+          headers: _headers(token),
+          body: jsonEncode({
+            'mode': mode,
+            if (thresholdPct != null) 'threshold_pct': thresholdPct,
+          }),
+        )
+        .timeout(_timeout);
+
+    final body = _decode(response);
+
+    if (response.statusCode == 200) return AlertSetting.fromJson(body);
+
+    final detail = body['detail'];
+    throw AlertException(
+        detail is String ? detail : 'Failed to save alert setting');
+  }
+
   Future<void> registerToken(String token, String fcmToken) async {
     final response = await http
         .post(

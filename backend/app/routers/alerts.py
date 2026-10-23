@@ -2,8 +2,14 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.database import get_db
 from app.dependencies import get_current_user
-from app.models.alert import AlertsResponse, RegisterTokenRequest
-from app.services.alert_service import get_alerts, mark_alerts_read
+from app.models.alert import (
+    AlertSettingRequest,
+    AlertSettingResponse,
+    AlertSettingsResponse,
+    AlertsResponse,
+    RegisterTokenRequest,
+)
+from app.services.alert_service import get_alert_settings, get_alerts, mark_alerts_read, set_alert_setting
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -16,6 +22,24 @@ def list_alerts(
     db=Depends(get_db),
 ):
     return get_alerts(db, current_user["id"], limit, offset)
+
+
+@router.get("/settings", response_model=AlertSettingsResponse)
+def list_alert_settings(
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    return get_alert_settings(db, current_user["id"])
+
+
+@router.put("/settings/{symbol}", response_model=AlertSettingResponse)
+def update_alert_setting(
+    symbol: str,
+    body: AlertSettingRequest,
+    current_user: dict = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    return set_alert_setting(db, current_user["id"], symbol, body)
 
 
 @router.patch("/read-all")

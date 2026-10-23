@@ -177,4 +177,28 @@ void main() {
       expect(info.isDefault, isFalse);
     });
   });
+
+  group('AlertSetting', () {
+    test('parses a custom percentage and labels it without trailing zeros', () {
+      final setting = AlertSetting.fromJson(
+          {'asset_symbol': 'BTC-USD', 'mode': 'percent', 'threshold_pct': 2.5});
+      expect(setting.isAutomatic, isFalse);
+      expect(setting.thresholdText, '2.5');
+      expect(setting.label, '±2.5%');
+      expect(
+          AlertSetting.fromJson({'asset_symbol': 'AAPL', 'mode': 'percent', 'threshold_pct': 10})
+              .label,
+          '±10%');
+    });
+
+    test('labels off and the automatic default', () {
+      expect(
+          AlertSetting.fromJson({'asset_symbol': 'AAPL', 'mode': 'off', 'threshold_pct': null}).label,
+          'Off');
+      const automatic = AlertSetting.automatic('AAPL');
+      expect(automatic.isAutomatic, isTrue);
+      expect(automatic.label, 'Automatic');
+      expect(automatic.thresholdText, isNull);
+    });
+  });
 }

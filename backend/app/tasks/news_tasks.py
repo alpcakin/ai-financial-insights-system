@@ -8,6 +8,7 @@ from app.services.alert_service import generate_impact_alerts
 from app.services.dedup_service import Story, assign_stories
 from app.services.feed_service import distribute_article
 from app.services.news_service import fetch_articles, filter_new_articles
+from app.services.tracked_assets import tracked_assets
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +129,7 @@ def process_news_cycle():
         )).execute()
         summary["attached"] += 1
 
-    portfolio_result = db.table("portfolio").select("asset_symbol").execute()
-    asset_pool = list({row["asset_symbol"] for row in portfolio_result.data})
+    asset_pool = sorted({symbol for _, symbol in tracked_assets(db)})
 
     categories_result = db.table("categories").select("name").eq("level", 2).execute()
     category_list = [row["name"] for row in categories_result.data]

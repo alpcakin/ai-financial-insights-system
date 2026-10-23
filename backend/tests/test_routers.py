@@ -220,6 +220,34 @@ def test_mark_alerts_read_200(client, mock_db):
     assert "marked_read" in r.json()
 
 
+def test_get_alert_settings_200(client, mock_db):
+    rows = [{"asset_symbol": "AAPL", "mode": "percent", "threshold_pct": 5.0}]
+    mock_db.table.side_effect = lambda _: chain_mock(rows)
+    r = client.get("/alerts/settings")
+    assert r.status_code == 200
+    assert r.json() == {"settings": rows}
+
+
+def test_put_alert_setting_200(client, mock_db):
+    mock_db.table.side_effect = lambda name: chain_mock(
+        [{"user_id": "user-123", "asset_symbol": "BTC-USD"}] if name == "watchlist" else []
+    )
+    r = client.put("/alerts/settings/BTC-USD", json={"mode": "percent", "threshold_pct": 8})
+    assert r.status_code == 200
+    assert r.json() == {"asset_symbol": "BTC-USD", "mode": "percent", "threshold_pct": 8.0}
+
+
+def test_put_alert_setting_invalid_body_422(client, mock_db):
+    r = client.put("/alerts/settings/AAPL", json={"mode": "percent"})
+    assert r.status_code == 422
+
+
+def test_put_alert_setting_untracked_asset_404(client, mock_db):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = client.put("/alerts/settings/AAPL", json={"mode": "off"})
+    assert r.status_code == 404
+
+
 # ── Reports ───────────────────────────────────────────────────────────────────
 
 def test_get_reports_200(client, mock_db):

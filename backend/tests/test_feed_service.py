@@ -23,15 +23,20 @@ def _analysis(provider, aid=None, assets=("AAPL",), categories=(), severity=7):
     }
 
 
-def _db(portfolio=None, followed=None, categories=None, users=None):
-    """Build a db whose tables answer with fixed rows, recording upserts."""
+def _db(portfolio=None, followed=None, categories=None, users=None, watchlist=None):
+    """Build a db whose tables answer with fixed rows, recording upserts.
+
+    Portfolio and watchlist rows only name the user; the asset is filled in.
+    """
     db = MagicMock()
     db.upserts = []
 
     def t(name):
         m = chain_mock([])
         if name == "portfolio":
-            m.execute.return_value.data = portfolio or []
+            m.execute.return_value.data = [{"asset_symbol": "AAPL", **row} for row in portfolio or []]
+        elif name == "watchlist":
+            m.execute.return_value.data = [{"asset_symbol": "AAPL", **row} for row in watchlist or []]
         elif name == "followed_topics":
             m.execute.return_value.data = followed or []
         elif name == "categories":
@@ -58,6 +63,11 @@ def test_match_both_empty():
 def test_match_asset():
     db = _db(portfolio=[{"user_id": "u1"}])
     assert _match_users(db, ["AAPL"], []) == {"u1"}
+
+
+def test_match_asset_on_watchlist():
+    db = _db(portfolio=[{"user_id": "u1"}], watchlist=[{"user_id": "u2"}])
+    assert _match_users(db, ["AAPL"], []) == {"u1", "u2"}
 
 
 def test_match_category_level2():

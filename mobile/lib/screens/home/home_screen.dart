@@ -8,10 +8,12 @@ import '../../data/models/asset_catalog.dart';
 import '../../data/models/portfolio_models.dart';
 import '../../data/models/watchlist_models.dart';
 import '../../providers/alert_provider.dart';
+import '../../providers/alert_settings_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/portfolio_provider.dart';
 import '../../providers/watchlist_provider.dart';
 import '../alerts/alerts_screen.dart';
+import 'alert_setting_sheet.dart';
 import 'asset_browser_modal.dart';
 
 const _kChartColors = [
@@ -53,6 +55,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ref.read(portfolioProvider.notifier).load(token);
       ref.read(watchlistProvider.notifier).load(token);
       ref.read(alertProvider.notifier).load(token);
+      ref.read(alertSettingsProvider.notifier).load(token);
     });
   }
 
@@ -62,6 +65,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ref.read(portfolioProvider.notifier).load(token),
       ref.read(watchlistProvider.notifier).load(token),
       ref.read(alertProvider.notifier).load(token),
+      ref.read(alertSettingsProvider.notifier).load(token),
     ]);
   }
 
@@ -193,6 +197,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final portfolioState = ref.watch(portfolioProvider);
     final watchlistState = ref.watch(watchlistProvider);
+    final alertSettings = ref.watch(alertSettingsProvider);
 
     ref.listen(
       portfolioProvider.select((s) => s.isLoading ? null : s.error),
@@ -276,6 +281,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       child: _AssetTile(
                         asset: asset,
                         color: _kChartColors[index % _kChartColors.length],
+                        alertSetting: alertSettings.forSymbol(asset.assetSymbol),
                         onTap: () => _showEditAssetSheet(asset),
                       ),
                     );
@@ -326,7 +332,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         child: const Icon(Icons.delete_rounded, color: Colors.white),
                       ),
                       confirmDismiss: (_) => _deleteWatchlistItem(item),
-                      child: _WatchlistTile(item: item),
+                      child: InkWell(
+                        onTap: () => showAlertSettingSheet(context, item.assetSymbol),
+                        child: _WatchlistTile(
+                          item: item,
+                          alertSetting: alertSettings.forSymbol(item.assetSymbol),
+                        ),
+                      ),
                     );
                   },
                   childCount: watchlistState.items.length,
@@ -586,9 +598,15 @@ class _DonutChart extends StatelessWidget {
 class _AssetTile extends StatelessWidget {
   final PortfolioAsset asset;
   final Color color;
+  final AlertSetting alertSetting;
   final VoidCallback onTap;
 
-  const _AssetTile({required this.asset, required this.color, required this.onTap});
+  const _AssetTile({
+    required this.asset,
+    required this.color,
+    required this.alertSetting,
+    required this.onTap,
+  });
 
   String _formatType(String type) {
     switch (type.toLowerCase()) {
@@ -628,13 +646,18 @@ class _AssetTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    asset.assetSymbol,
-                    style: GoogleFonts.inter(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: const Color(0xFF0F172A),
-                    ),
+                  Row(
+                    children: [
+                      Text(
+                        asset.assetSymbol,
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF0F172A),
+                        ),
+                      ),
+                      _AlertBadge(setting: alertSetting),
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -770,7 +793,8 @@ class _AssetLogo extends StatelessWidget {
 
 class _WatchlistTile extends StatelessWidget {
   final WatchlistItem item;
-  const _WatchlistTile({required this.item});
+  final AlertSetting alertSetting;
+  const _WatchlistTile({required this.item, required this.alertSetting});
 
   @override
   Widget build(BuildContext context) {
@@ -799,13 +823,18 @@ class _WatchlistTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  item.assetSymbol,
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFF0F172A),
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      item.assetSymbol,
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF0F172A),
+                      ),
+                    ),
+                    _AlertBadge(setting: alertSetting),
+                  ],
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -1067,8 +1096,49 @@ class _EditAssetSheetState extends ConsumerState<_EditAssetSheet> {
                     )
                   : const Text('Save Changes'),
             ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: () => showAlertSettingSheet(context, widget.asset.assetSymbol),
+              icon: const Icon(Icons.notifications_outlined, size: 18),
+              label: Text(
+                'Price alert: '
+                '${ref.watch(alertSettingsProvider).forSymbol(widget.asset.assetSymbol).label}',
+              ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Shown next to an asset whose price alert is not the default.
+class _AlertBadge extends StatelessWidget {
+  final AlertSetting setting;
+  const _AlertBadge({required this.setting});
+
+  @override
+  Widget build(BuildContext context) {
+    if (setting.isAutomatic) return const SizedBox.shrink();
+    final isOff = setting.mode == 'off';
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isOff ? Icons.notifications_off_outlined : Icons.notifications_active_outlined,
+            size: 13,
+            color: const Color(0xFF64748B),
+          ),
+          if (!isOff) ...[
+            const SizedBox(width: 2),
+            Text(
+              setting.label,
+              style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
+            ),
+          ],
+        ],
       ),
     );
   }

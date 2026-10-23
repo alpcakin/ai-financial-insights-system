@@ -3,6 +3,7 @@ from supabase import Client
 
 from app.services.ai import display_name_for
 from app.services.ai_service import qualifies
+from app.services.tracked_assets import tracked_assets
 from app.services.user_service import effective_provider
 
 logger = logging.getLogger(__name__)
@@ -19,16 +20,14 @@ ANALYSIS_FIELDS = (
 
 
 def _match_users(db: Client, related_assets: list[str], related_categories: list[str]) -> set[str]:
-    """Users whose portfolio or followed topics overlap one analysis."""
+    """Users whose portfolio, watchlist or followed topics overlap one analysis."""
     if not related_assets and not related_categories:
         return set()
 
     user_ids: set[str] = set()
 
     if related_assets:
-        result = db.table("portfolio").select("user_id").in_("asset_symbol", related_assets).execute()
-        for row in result.data:
-            user_ids.add(row["user_id"])
+        user_ids.update(user_id for user_id, _ in tracked_assets(db, symbols=related_assets))
 
     if related_categories:
         cat_result = db.table("categories").select("id, parent_id").in_("name", related_categories).execute()

@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
+from app.models.alert import AlertSettingRequest
 from app.models.portfolio import AddAssetRequest, UpdateAssetRequest
 from app.models.user import (
     ChangePasswordRequest,
@@ -111,3 +112,25 @@ def test_forgot_password_valid():
 def test_forgot_password_invalid_email():
     with pytest.raises(ValidationError):
         ForgotPasswordRequest(email="not-an-email")
+
+
+def test_alert_setting_percent_needs_a_threshold():
+    with pytest.raises(ValidationError):
+        AlertSettingRequest(mode="percent")
+
+
+@pytest.mark.parametrize("mode", ["auto", "off"])
+def test_alert_setting_threshold_only_with_percent(mode):
+    with pytest.raises(ValidationError):
+        AlertSettingRequest(mode=mode, threshold_pct=5)
+
+
+@pytest.mark.parametrize("pct", [0.5, 50.5])
+def test_alert_setting_threshold_range(pct):
+    with pytest.raises(ValidationError):
+        AlertSettingRequest(mode="percent", threshold_pct=pct)
+
+
+def test_alert_setting_valid():
+    assert AlertSettingRequest(mode="percent", threshold_pct=1).threshold_pct == 1
+    assert AlertSettingRequest(mode="off").threshold_pct is None

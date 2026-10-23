@@ -25,11 +25,11 @@ class PrivacyPolicyScreen extends StatelessWidget {
           children: [
             _section(
               'Data We Collect',
-              'We collect your email address, portfolio holdings (asset symbols, quantities, purchase prices), watchlist items, news alert preferences, and followed topics. This data is necessary to provide personalized financial insights.',
+              'We collect your email address, portfolio holdings (asset symbols, quantities, purchase prices), watchlist items, news and price alert preferences, and followed topics. This data is necessary to provide personalized financial insights.',
             ),
             _section(
               'How We Use Your Data',
-              'Your portfolio data is used to match relevant financial news and generate alerts when assets in your portfolio experience significant market events. We do not sell your data to third parties.\n\nNews articles are analyzed by third-party AI services (OpenAI, Google Gemini, xAI Grok and Anthropic Claude); the model you select decides whose analysis you see. Only the article text and the combined list of asset symbols held across all users are sent to these services. Your email address, holdings, quantities and prices are never shared with them.',
+              'Your portfolio and watchlist are used to match relevant financial news and generate alerts when these assets experience significant market events. We do not sell your data to third parties.\n\nNews articles are analyzed by third-party AI services (OpenAI, Google Gemini, xAI Grok and Anthropic Claude); the model you select decides whose analysis you see. Only the article text and the combined list of asset symbols held or watched across all users are sent to these services. Your email address, holdings, quantities and prices are never shared with them.',
             ),
             _section(
               'Data Storage',
@@ -37,7 +37,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
             ),
             _section(
               'Push Notifications',
-              'With your permission, we may send push notifications for high-impact news events or significant price movements affecting your portfolio. You can disable these at any time from the Profile screen.',
+              'With your permission, we may send push notifications for high-impact news events or significant price movements affecting your portfolio or watchlist. You can disable these at any time from the Profile screen.',
             ),
             _section(
               'Your Rights',
@@ -45,7 +45,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
             ),
             _section(
               'Data Retention',
-              'Your account, portfolio, watchlist and reports are retained for as long as your account is active. News feed entries and alerts are deleted after 30 days. When you delete your account, all associated data is permanently removed from our systems.',
+              'Your account, portfolio, watchlist, alert settings and reports are retained for as long as your account is active. News feed entries and alerts are deleted after 30 days. When you delete your account, all associated data is permanently removed from our systems.',
             ),
             _section(
               'Contact',

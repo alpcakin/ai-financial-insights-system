@@ -110,6 +110,7 @@ def test_export_user_data_structure():
     assert result["portfolio"][0]["asset_symbol"] == "AAPL"
     assert "watchlist" in result
     assert "alerts" in result
+    assert "alert_settings" in result
     assert "followed_topics" in result
     assert "reports" in result
 

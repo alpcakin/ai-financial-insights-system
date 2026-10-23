@@ -41,6 +41,8 @@ Once a day, feed entries and alerts older than `RETENTION_DAYS` (30) are deleted
 - Portfolio and watchlist accept only the symbols in the asset catalog (`backend/app/services/asset_catalog.py`). The app loads the list from `GET /assets`, and asset type and category are taken from the catalog, not from the request.
 - Passwords are hashed with bcrypt. Refresh, email verification and password reset tokens are stored as SHA-256 hashes. Changing or resetting the password ends every session.
 - Login (10 attempts per 15 minutes), registration and password reset (5 per hour) are rate limited per client IP.
+- Portfolio and watchlist assets are treated the same for news matching and alerts; only the weekly report is portfolio-only.
+- Volatility alerts fire when an asset moves at least 2.58 times its usual daily move (RiskMetrics volatility, λ = 0.94). Stocks, ETFs and commodities are measured against the previous close, crypto over the last 24 hours. Each move is alerted once (migration 020). Per asset, a user can replace the default with a fixed percentage (1-50%) or turn price alerts off (`/alerts/settings`, migration 021).
 - The notification settings turn off the push for impact or volatility alerts; the alerts are still listed in the app.
 
 ## Project Structure
