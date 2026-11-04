@@ -7,10 +7,11 @@ from app.services.ai import get_registry
 
 
 def _parse_prefs(raw: dict | None) -> dict:
-    """Extract notification preference flags, defaulting to True if absent."""
+    """Extract notification preferences, with their defaults if absent."""
     raw = raw or {}
     return {
         "impact_alerts": raw.get("impact_alerts", True),
+        "impact_alert_level": raw.get("impact_alert_level", "high"),
         "volatility_alerts": raw.get("volatility_alerts", True),
     }
 
@@ -40,6 +41,8 @@ def update_preferences(db: Client, user: dict, request: UpdatePreferencesRequest
     prefs = dict(user.get("notification_preferences") or {})
     if request.impact_alerts is not None:
         prefs["impact_alerts"] = request.impact_alerts
+    if request.impact_alert_level is not None:
+        prefs["impact_alert_level"] = request.impact_alert_level
     if request.volatility_alerts is not None:
         prefs["volatility_alerts"] = request.volatility_alerts
 

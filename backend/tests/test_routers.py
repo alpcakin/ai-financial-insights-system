@@ -40,7 +40,7 @@ ALERT_ROW = {
     "article_id": None,
     "asset_symbol": "AAPL",
     "alert_type": "volatility",
-    "severity": 8,
+    "severity": 3,
     "message": "AAPL moved up 10.0%",
     "notification_sent": False,
     "is_read": False,
@@ -331,9 +331,21 @@ def test_update_me_200(client, mock_db):
 
 def test_update_me_ai_provider_200(client, mock_db, registry):
     mock_db.table.side_effect = lambda _: chain_mock([])
-    r = client.patch("/users/me", json={"ai_provider": "grok"})
+    r = client.patch("/users/me", json={"ai_provider": "claude"})
     assert r.status_code == 200
-    assert r.json()["ai_provider"] == "grok"
+    assert r.json()["ai_provider"] == "claude"
+
+
+def test_update_me_impact_alert_level_200(client, mock_db, registry):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    r = client.patch("/users/me", json={"impact_alert_level": "very_high"})
+    assert r.status_code == 200
+    assert r.json()["notification_preferences"]["impact_alert_level"] == "very_high"
+
+
+def test_update_me_impact_alert_level_rejects_medium(client, mock_db, registry):
+    mock_db.table.side_effect = lambda _: chain_mock([])
+    assert client.patch("/users/me", json={"impact_alert_level": "medium"}).status_code == 422
 
 
 def test_update_me_ai_provider_400_unknown(client, mock_db, registry):
@@ -347,7 +359,7 @@ def test_get_ai_providers_200(client, registry):
     assert r.status_code == 200
     body = r.json()
     assert body["default"] == "openai"
-    assert [p["name"] for p in body["providers"]] == ["openai", "gemini", "grok"]
+    assert [p["name"] for p in body["providers"]] == ["openai", "gemini", "claude"]
     assert {"name", "display_name", "model", "is_default"} <= set(body["providers"][0])
 
 

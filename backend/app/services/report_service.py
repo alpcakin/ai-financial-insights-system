@@ -47,7 +47,7 @@ def generate_weekly_report(db: Client, user_id: str) -> dict:
         for row in (feed_result.data or [])
         if row.get("articles")
     ]
-    articles_raw.sort(key=lambda a: a.get("severity") or 0, reverse=True)
+    articles_raw.sort(key=lambda a: (a.get("severity") or 0, a.get("published_at") or ""), reverse=True)
 
     top_articles = [
         {

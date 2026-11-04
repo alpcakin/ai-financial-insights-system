@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../core/severity.dart';
 import '../../data/models/alert_models.dart';
 import '../../data/models/asset_catalog.dart';
 import '../../data/models/portfolio_models.dart';
@@ -1258,13 +1259,6 @@ class _CompactAlertRow extends StatelessWidget {
 
   const _CompactAlertRow({required this.alert});
 
-  Color _severityColor() {
-    final s = alert.severity ?? 5;
-    if (s >= 9) return const Color(0xFFEF4444);
-    if (s >= 7) return const Color(0xFFF97316);
-    return const Color(0xFF3B82F6);
-  }
-
   String _timeAgo() {
     final dt = DateTime.tryParse(alert.createdAt);
     if (dt == null) return '';
@@ -1276,7 +1270,7 @@ class _CompactAlertRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _severityColor();
+    final color = severityColor(alert.severity);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(

@@ -1,21 +1,31 @@
 class NotificationPreferences {
   final bool impactAlerts;
+
+  /// Lowest asset level that sends a push: "high" or "very_high".
+  final String impactAlertLevel;
   final bool volatilityAlerts;
 
   const NotificationPreferences({
     this.impactAlerts = true,
+    this.impactAlertLevel = 'high',
     this.volatilityAlerts = true,
   });
 
   factory NotificationPreferences.fromJson(Map<String, dynamic> json) =>
       NotificationPreferences(
         impactAlerts: json['impact_alerts'] as bool? ?? true,
+        impactAlertLevel: json['impact_alert_level'] as String? ?? 'high',
         volatilityAlerts: json['volatility_alerts'] as bool? ?? true,
       );
 
-  NotificationPreferences copyWith({bool? impactAlerts, bool? volatilityAlerts}) =>
+  NotificationPreferences copyWith({
+    bool? impactAlerts,
+    String? impactAlertLevel,
+    bool? volatilityAlerts,
+  }) =>
       NotificationPreferences(
         impactAlerts: impactAlerts ?? this.impactAlerts,
+        impactAlertLevel: impactAlertLevel ?? this.impactAlertLevel,
         volatilityAlerts: volatilityAlerts ?? this.volatilityAlerts,
       );
 }

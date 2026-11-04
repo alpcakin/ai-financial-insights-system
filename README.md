@@ -1,13 +1,13 @@
 # AI-Powered Personalized Financial Insights and Alert System
 
-A Flutter-based Android application that monitors investment portfolios and delivers personalized financial news with AI-driven analysis. News articles are collected from a fixed list of RSS feeds, grouped so that one event reported by several outlets becomes one story, analyzed centrally by every enabled AI provider for sentiment, severity, and per-asset impact, then distributed to users based on their portfolio holdings, followed topics, and the AI model each user has chosen.
+A Flutter-based Android application that monitors investment portfolios and delivers personalized financial news with AI-driven analysis. News articles are collected from a fixed list of RSS feeds, grouped so that one event reported by several outlets becomes one story, analyzed centrally by every enabled AI provider for sentiment, importance level, and per-asset impact, then distributed to users based on their portfolio holdings, followed topics, and the AI model each user has chosen.
 
 ## Architecture
 
 - **Mobile**: Flutter (Android) with Riverpod state management
 - **Backend**: Python 3.12 FastAPI with an in-process APScheduler for the news, volatility, report, and cleanup jobs
 - **Database**: Supabase (PostgreSQL) with GIN indexes on array columns and pgvector for story matching
-- **AI**: pluggable providers behind one interface. OpenAI GPT (`gpt-6-luna`), Google Gemini (`gemini-3.5-flash-lite`), xAI Grok (`grok-4.20-0309-non-reasoning`), and Anthropic Claude (`claude-haiku-5-5`) ship out of the box; model names are set in `.env`
+- **AI**: pluggable providers behind one interface. OpenAI GPT (`gpt-6-luna`), Google Gemini (`gemini-3.5-flash-lite`), and Anthropic Claude (`claude-haiku-5-5`) ship out of the box; model names are set in `.env`
 - **Notifications**: Firebase Cloud Messaging
 
 ## AI providers
@@ -30,7 +30,7 @@ Every `NEWS_FETCH_INTERVAL_MINUTES` (15 is a good value) the backend runs one cy
 1. **Fetch** (`news_service.py`): the feeds in `FEEDS` are read with conditional requests, so an unchanged feed costs a 304. Items older than 24 hours, sponsored items and non-web links are dropped; URLs are normalized so the same article reached through two feeds is seen once.
 2. **Group** (`dedup_service.py`): each new article is embedded (`text-embedding-3-small`) and compared with the first article ("lead") of every story stored in the last 48 hours, and with stories started earlier in the same cycle. The three closest stories at or above `DEDUP_CANDIDATE_THRESHOLD` (0.65) go to the default provider, which is shown when each report was published and decides which story, if any, reports the same event. Similarity alone never joins a story: recurring reports such as daily roundups read almost the same from one day to the next.
 3. **Analyze**: a new story is analyzed once by every provider. Reports of it that arrived in the same cycle go into the same prompt. Reports that arrive later are attached as extra sources: no new analysis, no new notification.
-4. **Distribute**: stories with severity 4 or above reach users through their portfolio and followed topics. Stories below that are stored but not shown.
+4. **Distribute**: stories rated medium or above reach users through their portfolio and followed topics. Stories below that are stored but not shown.
 
 The feed returns every outlet that reported a story (`sources`), and `GET /feed/sources` lists the feeds for the app's News Sources screen.
 

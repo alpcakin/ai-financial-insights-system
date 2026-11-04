@@ -17,8 +17,10 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool? _impactOverride;
+  String? _impactLevelOverride;
   bool? _volatilityOverride;
   bool _updatingImpact = false;
+  bool _updatingImpactLevel = false;
   bool _updatingVolatility = false;
   bool _updatingProvider = false;
 
@@ -56,6 +58,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       }
     }
     if (mounted) setState(() { _impactOverride = null; _updatingImpact = false; });
+  }
+
+  Future<void> _setImpactLevel(String value) async {
+    setState(() { _impactLevelOverride = value; _updatingImpactLevel = true; });
+    try {
+      final token = ref.read(authProvider).token ?? '';
+      await ref.read(userProvider.notifier).updatePreferences(token, impactAlertLevel: value);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update preferences')),
+        );
+      }
+    }
+    if (mounted) setState(() { _impactLevelOverride = null; _updatingImpactLevel = false; });
   }
 
   Future<void> _toggleVolatility(bool value) async {
@@ -213,6 +230,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final prefs = userState.profile?.preferences;
 
     final impactValue = _impactOverride ?? prefs?.impactAlerts ?? true;
+    final impactLevel = _impactLevelOverride ?? prefs?.impactAlertLevel ?? 'high';
     final volatilityValue = _volatilityOverride ?? prefs?.volatilityAlerts ?? true;
     final currentProvider = userState.currentProvider;
     final providerLabel = currentProvider?.displayName ??
@@ -288,6 +306,34 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 contentPadding: const EdgeInsets.symmetric(horizontal: 16),
               ),
             ),
+            if (impactValue)
+              _SettingsTile(
+                child: ListTile(
+                  title: Text('Notify me for',
+                      style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500)),
+                  subtitle: impactLevel == 'very_high'
+                      ? Text(
+                          'Very high news is rare, so expect few notifications. '
+                          'High news still appears in your alerts.',
+                          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                        )
+                      : null,
+                  trailing: DropdownButton<String>(
+                    value: impactLevel,
+                    underline: const SizedBox.shrink(),
+                    style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF0F172A)),
+                    onChanged: _updatingImpactLevel
+                        ? null
+                        : (value) {
+                            if (value != null && value != impactLevel) _setImpactLevel(value);
+                          },
+                    items: const [
+                      DropdownMenuItem(value: 'high', child: Text('High and above')),
+                      DropdownMenuItem(value: 'very_high', child: Text('Very high only')),
+                    ],
+                  ),
+                ),
+              ),
             _SettingsTile(
               child: SwitchListTile(
                 title: Text('Volatility alerts',

@@ -4,6 +4,7 @@ import os
 from supabase import Client
 
 from app.core.config import settings
+from app.services.ai_service import ALERT_SEVERITY, SEVERITY_LEVELS
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +57,10 @@ def send_push(fcm_token: str, title: str, body: str) -> bool:
         return False
 
 
-def batch_fetch_fcm_tokens(db: Client, user_ids: set[str], preference_key: str) -> dict[str, str]:
-    """Push tokens of the users who have not turned off this alert type
-    ("impact_alerts" or "volatility_alerts"). The alert rows are created
-    either way; the preference only controls the push."""
+def _push_preferences(db: Client, user_ids: set[str], preference_key: str) -> dict[str, dict]:
+    """Preferences of the users with a push token who have not turned off this
+    alert type ("impact_alerts" or "volatility_alerts"). The alert rows are
+    created either way; the preferences only control the push."""
     if not user_ids:
         return {}
     result = (
@@ -68,13 +69,27 @@ def batch_fetch_fcm_tokens(db: Client, user_ids: set[str], preference_key: str) 
         .in_("id", list(user_ids))
         .execute()
     )
-    token_map: dict[str, str] = {}
+    found: dict[str, dict] = {}
     for row in result.data:
         prefs = row.get("notification_preferences") or {}
-        token = prefs.get("fcm_token")
-        if token and prefs.get(preference_key, True):
-            token_map[row["id"]] = token
-    return token_map
+        if prefs.get("fcm_token") and prefs.get(preference_key, True):
+            found[row["id"]] = prefs
+    return found
+
+
+def batch_fetch_fcm_tokens(db: Client, user_ids: set[str], preference_key: str) -> dict[str, str]:
+    prefs_by_user = _push_preferences(db, user_ids, preference_key)
+    return {user_id: prefs["fcm_token"] for user_id, prefs in prefs_by_user.items()}
+
+
+def batch_fetch_impact_push(db: Client, user_ids: set[str]) -> dict[str, tuple[str, int]]:
+    """Push token and the lowest asset level to push at, per user: "high"
+    unless the user chose "very_high"."""
+    prefs_by_user = _push_preferences(db, user_ids, "impact_alerts")
+    return {
+        user_id: (prefs["fcm_token"], SEVERITY_LEVELS.get(prefs.get("impact_alert_level"), ALERT_SEVERITY))
+        for user_id, prefs in prefs_by_user.items()
+    }
 
 
 def notify_alert_with_token(db: Client, alert_id: str, fcm_token: str, title: str, body: str):

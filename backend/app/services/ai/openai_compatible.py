@@ -6,9 +6,8 @@ from app.services.ai.base import AIProvider
 class OpenAICompatibleProvider(AIProvider):
     """Provider for any API that speaks the OpenAI chat-completions protocol.
 
-    Used for OpenAI itself and for xAI's Grok, which exposes the same
-    protocol at a different base URL. Vendors that differ only by endpoint
-    and model name can be added with a single line in the registry.
+    Used for OpenAI itself. Vendors that differ only by endpoint and model
+    name can be added with a single line in the registry.
 
     Reasoning models reject any temperature other than the default, so when
     ``reasoning_effort`` is set it is sent instead of ``temperature``.

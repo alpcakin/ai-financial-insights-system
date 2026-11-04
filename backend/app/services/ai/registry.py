@@ -105,16 +105,6 @@ def build_registry(settings) -> ProviderRegistry:
             timeout=settings.ai_request_timeout_seconds,
         ))
 
-    if settings.xai_api_key:
-        providers.append(OpenAICompatibleProvider(
-            name="grok",
-            display_name=DISPLAY_NAMES["grok"],
-            model=settings.grok_model,
-            api_key=settings.xai_api_key,
-            base_url=settings.xai_base_url,
-            timeout=settings.ai_request_timeout_seconds,
-        ))
-
     if settings.anthropic_api_key:
         providers.append(ClaudeProvider(
             api_key=settings.anthropic_api_key,

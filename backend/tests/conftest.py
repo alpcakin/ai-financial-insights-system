@@ -65,7 +65,7 @@ class FakeProvider(AIProvider):
 @pytest.fixture
 def registry():
     """Install a registry with three fake providers; restore afterwards."""
-    providers = [FakeProvider("openai"), FakeProvider("gemini"), FakeProvider("grok")]
+    providers = [FakeProvider("openai"), FakeProvider("gemini"), FakeProvider("claude")]
     reg = ProviderRegistry(providers, "openai")
     set_registry(reg)
     yield reg

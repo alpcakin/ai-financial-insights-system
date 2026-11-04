@@ -12,7 +12,7 @@ from app.services.feed_service import (
 from tests.conftest import chain_mock, make_db
 
 
-def _analysis(provider, aid=None, assets=("AAPL",), categories=(), severity=7):
+def _analysis(provider, aid=None, assets=("AAPL",), categories=(), severity=3):
     return {
         "id": aid or f"an-{provider}",
         "provider": provider,
@@ -93,13 +93,13 @@ def test_choose_nothing_when_own_provider_analyzed_but_did_not_match():
 
 
 def test_choose_falls_back_to_default_when_own_provider_failed():
-    matched = {"openai": {"u1"}, "grok": {"u1"}}
-    assert choose_analysis("gemini", matched, "u1", "openai", {"openai", "grok"}) == "openai"
+    matched = {"openai": {"u1"}, "claude": {"u1"}}
+    assert choose_analysis("gemini", matched, "u1", "openai", {"openai", "claude"}) == "openai"
 
 
 def test_choose_falls_back_to_any_when_default_did_not_match():
-    matched = {"openai": set(), "grok": {"u1"}}
-    assert choose_analysis("gemini", matched, "u1", "openai", {"openai", "grok"}) == "grok"
+    matched = {"openai": set(), "claude": {"u1"}}
+    assert choose_analysis("gemini", matched, "u1", "openai", {"openai", "claude"}) == "claude"
 
 
 def test_choose_none_when_nothing_matched():
@@ -116,7 +116,7 @@ def test_choose_unknown_user_provider_uses_default():
 
 def test_distribute_no_qualifying_analyses():
     db = _db(portfolio=[{"user_id": "u1"}])
-    result = distribute_article(db, "a1", [_analysis("openai", severity=3)], "openai")
+    result = distribute_article(db, "a1", [_analysis("openai", severity=1)], "openai")
     assert result == {}
     assert db.upserts == []
 
@@ -167,7 +167,7 @@ def test_distribute_own_provider_is_not_a_fallback(registry):
 def test_distribute_disabled_provider_is_not_a_fallback(registry):
     """A user whose model is switched off is served by the default model,
     which is also what their profile shows."""
-    db = _db(portfolio=[{"user_id": "u1"}], users=[{"id": "u1", "ai_provider": "claude"}])
+    db = _db(portfolio=[{"user_id": "u1"}], users=[{"id": "u1", "ai_provider": "grok"}])
     distribute_article(db, "a1", [_analysis("openai")], "openai")
     assert db.upserts[0]["is_fallback"] is False
 
@@ -179,7 +179,7 @@ def test_distribute_low_severity_provider_blocks_its_users():
         portfolio=[{"user_id": "u1"}, {"user_id": "u2"}],
         users=[{"id": "u1", "ai_provider": "openai"}, {"id": "u2", "ai_provider": "gemini"}],
     )
-    analyses = [_analysis("openai"), _analysis("gemini", severity=2)]
+    analyses = [_analysis("openai"), _analysis("gemini", severity=1)]
     result = distribute_article(db, "a1", analyses, "openai")
     assert result == {"an-openai": {"u1"}}
 
@@ -188,7 +188,7 @@ def test_distribute_low_severity_provider_blocks_its_users():
 
 ARTICLE = {"id": "a1", "title": "T", "url": "http://x.com", "source": "Reuters", "published_at": "2026-04-28"}
 ANALYSIS = {
-    "id": "an1", "provider": "gemini", "summary": "s", "sentiment_label": "positive", "severity": 5,
+    "id": "an1", "provider": "gemini", "summary": "s", "sentiment_label": "positive", "severity": 2,
     "related_categories": ["Tech"], "related_assets": ["AAPL"], "asset_impacts": [],
 }
 
@@ -222,7 +222,7 @@ def test_get_feed_no_filter_merges_analysis_and_reads_fallback_flag():
     article = result["articles"][0]
     assert article["title"] == "T"
     assert article["summary"] == "s"
-    assert article["severity"] == 5
+    assert article["severity"] == 2
     assert article["analyzed_by"] == "gemini"
     assert article["analyzed_by_name"] == "Gemini"
     assert article["is_fallback"] is True

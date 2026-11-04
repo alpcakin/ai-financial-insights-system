@@ -5,10 +5,10 @@ from app.core.database import get_db
 from app.services.ai import get_registry
 from app.services.ai_service import analyze_article_all, qualifies
 from app.services.alert_service import generate_impact_alerts
+from app.services.asset_catalog import ASSETS
 from app.services.dedup_service import Story, assign_stories
 from app.services.feed_service import distribute_article
 from app.services.news_service import fetch_articles, filter_new_articles
-from app.services.tracked_assets import tracked_assets
 
 logger = logging.getLogger(__name__)
 
@@ -129,10 +129,10 @@ def process_news_cycle():
         )).execute()
         summary["attached"] += 1
 
-    asset_pool = sorted({symbol for _, symbol in tracked_assets(db)})
+    asset_pool = sorted(asset["symbol"] for asset in ASSETS)
 
     categories_result = db.table("categories").select("name").eq("level", 2).execute()
-    category_list = [row["name"] for row in categories_result.data]
+    category_list = sorted(row["name"] for row in categories_result.data)
 
     default_provider = registry.default.name if registry.default else None
     for done, story in enumerate(stories):

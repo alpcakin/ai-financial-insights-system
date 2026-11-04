@@ -9,8 +9,13 @@ from fastapi import HTTPException, status
 from supabase import Client
 
 from app.models.alert import AlertSettingRequest
+from app.services.ai_service import ALERT_SEVERITY, SEVERITY_LEVELS
 from app.services.asset_catalog import get_asset
-from app.services.notification_service import batch_fetch_fcm_tokens, notify_alert_with_token
+from app.services.notification_service import (
+    batch_fetch_fcm_tokens,
+    batch_fetch_impact_push,
+    notify_alert_with_token,
+)
 from app.services.tracked_assets import tracked_assets
 
 logger = logging.getLogger(__name__)
@@ -25,9 +30,9 @@ EWMA_LAMBDA = 0.94
 #: Daily returns needed before the volatility estimate is used.
 MIN_RETURNS = 60
 HISTORY_PERIOD = "6mo"
-#: Severity 7 at the threshold, then the steps of the former fixed thresholds
-#: (7%, 10%, 15%, 20%) as multiples of it.
-_SEVERITY_STEPS = ((20 / 7, 10), (15 / 7, 9), (10 / 7, 8))
+#: A move at the threshold is "high". At this multiple of it, the former 15%
+#: step over the former 7% threshold, it is "very_high".
+_VERY_HIGH_MULTIPLE = 15 / 7
 
 
 def generate_impact_alerts(
@@ -58,7 +63,7 @@ def generate_impact_alerts(
     for user_id, symbol in tracked_assets(db, user_ids=list(user_ids)):
         user_assets_map.setdefault(user_id, set()).add(symbol)
 
-    fcm_tokens = batch_fetch_fcm_tokens(db, user_ids, "impact_alerts")
+    push_settings = batch_fetch_impact_push(db, user_ids)
 
     created = 0
     for user_id in user_ids:
@@ -69,7 +74,7 @@ def generate_impact_alerts(
         matched = [
             impact_map[sym]
             for sym in user_assets
-            if sym in impact_map and impact_map[sym].get("severity", 0) >= 7
+            if sym in impact_map and impact_map[sym].get("severity", 0) >= ALERT_SEVERITY
         ]
         if not matched:
             continue
@@ -83,15 +88,15 @@ def generate_impact_alerts(
                 "article_id": article_id,
                 "asset_symbol": top["symbol"],
                 "alert_type": "impact",
-                "severity": top.get("severity", 7),
+                "severity": top["severity"],
                 "message": message,
                 "ai_provider": ai_provider,
             }).execute()
 
             if insert.data:
                 alert_id = insert.data[0]["id"]
-                fcm_token = fcm_tokens.get(user_id)
-                if fcm_token:
+                fcm_token, min_severity = push_settings.get(user_id, (None, 0))
+                if fcm_token and top["severity"] >= min_severity:
                     notify_alert_with_token(db, alert_id, fcm_token, f"High Impact: {top['symbol']}", message)
                 created += 1
         except Exception as e:
@@ -164,10 +169,7 @@ def _fetch_volatility_move(symbol: str) -> VolatilityMove | None:
 
 
 def _severity_from_z(z: float) -> int:
-    for multiple, severity in _SEVERITY_STEPS:
-        if z >= VOLATILITY_SIGMA * multiple:
-            return severity
-    return 7
+    return SEVERITY_LEVELS["very_high" if z >= VOLATILITY_SIGMA * _VERY_HIGH_MULTIPLE else "high"]
 
 
 def _wants_alert(setting: dict | None, move: VolatilityMove) -> bool:

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from app.services import ai_service
 from app.services.ai import ProviderRegistry, set_registry
+from app.services.asset_catalog import ASSETS
 from app.services.dedup_service import Attachment, Story
 from app.tasks import news_tasks
 from tests.conftest import FakeProvider, chain_mock
@@ -18,14 +19,14 @@ def _article(title="Apple beats estimates", url="https://bloomberg.com/a", sourc
     }
 
 
-def _response(severity=7, symbol="AAPL"):
+def _response(level="high", symbol="AAPL"):
     return json.dumps({
         "summary": "Apple did well",
         "sentiment": "positive",
-        "severity": severity,
+        "level": level,
         "categories": ["Technology"],
         "impacted_assets": [
-            {"symbol": symbol, "impact": "positive", "severity": severity, "reason": "earnings"}
+            {"symbol": symbol, "impact": "positive", "relevance": "subject", "level": level, "reason": "earnings"}
         ],
     })
 
@@ -75,8 +76,8 @@ def _run(articles, stories=None, attachments=None, db=None):
 @patch("app.tasks.news_tasks.distribute_article")
 def test_cycle_stores_one_analysis_per_provider(mock_distribute, mock_alerts):
     set_registry(ProviderRegistry([
-        FakeProvider("openai", [_response(8)]),
-        FakeProvider("gemini", [_response(5)]),
+        FakeProvider("openai", [_response("high")]),
+        FakeProvider("gemini", [_response("medium")]),
     ], "openai"))
     mock_distribute.return_value = {"an-openai": {"u1"}, "an-gemini": {"u2"}}
 
@@ -92,10 +93,10 @@ def test_cycle_stores_one_analysis_per_provider(mock_distribute, mock_alerts):
 
     rows = {r["provider"]: r for r in db.inserts["article_analyses"]}
     assert set(rows) == {"openai", "gemini"}
-    assert rows["openai"]["severity"] == 8
+    assert rows["openai"]["severity"] == 3
     assert rows["openai"]["related_assets"] == ["AAPL"]
     assert rows["openai"]["model"] == "fake-model"
-    assert json.loads(rows["openai"]["raw_response"])["severity"] == 8
+    assert json.loads(rows["openai"]["raw_response"])["level"] == "high"
 
     args = mock_distribute.call_args.args
     assert args[1] == "art-1"
@@ -108,15 +109,15 @@ def test_cycle_stores_one_analysis_per_provider(mock_distribute, mock_alerts):
 @patch("app.tasks.news_tasks.distribute_article", return_value={})
 def test_cycle_keeps_low_severity_analysis_when_another_qualifies(mock_distribute, _alerts):
     set_registry(ProviderRegistry([
-        FakeProvider("openai", [_response(2)]),
-        FakeProvider("gemini", [_response(6)]),
+        FakeProvider("openai", [_response("low")]),
+        FakeProvider("gemini", [_response("medium")]),
     ], "openai"))
 
     result, db = _run([_article()])
 
     assert result["processed"] == 1
     severities = {r["provider"]: r["severity"] for r in db.inserts["article_analyses"]}
-    assert severities == {"openai": 2, "gemini": 6}
+    assert severities == {"openai": 1, "gemini": 2}
 
 
 @patch("app.tasks.news_tasks.distribute_article")
@@ -124,8 +125,8 @@ def test_low_severity_story_is_stored_but_not_distributed(mock_distribute):
     # Stored so that the next cycle does not analyze it again and later
     # reports of the same event can join it.
     set_registry(ProviderRegistry([
-        FakeProvider("openai", [_response(2)]),
-        FakeProvider("gemini", [_response(3)]),
+        FakeProvider("openai", [_response("low")]),
+        FakeProvider("gemini", [_response("low")]),
     ], "openai"))
 
     result, db = _run([_article()])
@@ -140,7 +141,7 @@ def test_low_severity_story_is_stored_but_not_distributed(mock_distribute):
 def test_cycle_continues_when_one_provider_is_down(_distribute):
     set_registry(ProviderRegistry([
         FakeProvider("openai", error=RuntimeError("down")),
-        FakeProvider("gemini", [_response(7)]),
+        FakeProvider("gemini", [_response("high")]),
     ], "openai"))
 
     result, db = _run([_article()])
@@ -163,7 +164,7 @@ def test_story_is_not_stored_when_all_providers_fail():
 @patch("app.tasks.news_tasks.generate_impact_alerts")
 @patch("app.tasks.news_tasks.distribute_article", return_value={})
 def test_same_cycle_reports_are_analyzed_together_and_stored_as_members(_distribute, _alerts):
-    provider = FakeProvider("openai", [_response(7)])
+    provider = FakeProvider("openai", [_response("high")])
     set_registry(ProviderRegistry([provider], "openai"))
     lead = {**_article(), "embedding": [0.1]}
     member = {**_article("Apple tops forecasts", "https://cnbc.com/a", "CNBC"),
@@ -187,7 +188,7 @@ def test_same_cycle_reports_are_analyzed_together_and_stored_as_members(_distrib
 @patch("app.tasks.news_tasks.generate_impact_alerts")
 @patch("app.tasks.news_tasks.distribute_article", return_value={})
 def test_grouped_prompt_is_capped(_distribute, _alerts):
-    set_registry(ProviderRegistry([FakeProvider("openai", [_response(7)])], "openai"))
+    set_registry(ProviderRegistry([FakeProvider("openai", [_response("high")])], "openai"))
     lead = _article()
     members = [{**_article(f"t{i}", f"https://x.com/{i}"), "duplicate_similarity": 0.9} for i in range(6)]
 
@@ -219,7 +220,7 @@ def test_report_of_a_stored_story_is_attached_without_analysis(mock_distribute):
 @patch("app.tasks.news_tasks.generate_impact_alerts")
 @patch("app.tasks.news_tasks.distribute_article")
 def test_shutdown_stops_the_cycle_after_the_current_story(mock_distribute, _alerts):
-    set_registry(ProviderRegistry([FakeProvider("openai", [_response(7), _response(7)])], "openai"))
+    set_registry(ProviderRegistry([FakeProvider("openai", [_response("high"), _response("high")])], "openai"))
     mock_distribute.side_effect = lambda *args: news_tasks.stop_requested.set() or {}
     try:
         result, db = _run([_article(), _article("Other", "https://cnbc.com/b", "CNBC")])
@@ -228,6 +229,18 @@ def test_shutdown_stops_the_cycle_after_the_current_story(mock_distribute, _aler
 
     assert result["processed"] == 1
     assert [a["url"] for a in db.inserts["articles"]] == ["https://bloomberg.com/a"]
+
+
+@patch("app.tasks.news_tasks.distribute_article", return_value={})
+def test_cycle_offers_the_whole_catalog_to_the_providers(_distribute):
+    set_registry(ProviderRegistry([FakeProvider("openai", [_response("high")])], "openai"))
+
+    with patch("app.tasks.news_tasks.analyze_article_all", wraps=news_tasks.analyze_article_all) as spy:
+        _run([_article()])
+
+    pool = spy.call_args.kwargs["asset_pool"]
+    assert pool == sorted(asset["symbol"] for asset in ASSETS)
+    assert len(pool) == 148
 
 
 def test_cycle_stops_early_when_nothing_is_new():

@@ -18,9 +18,6 @@ class Settings(BaseSettings):
     # Gemini 3 models think by default; "low" matches the effort the other
     # providers run with. Empty keeps the model default.
     gemini_thinking_level: str = "low"
-    xai_api_key: str = ""
-    xai_base_url: str = "https://api.x.ai/v1"
-    grok_model: str = "grok-4.20-0309-non-reasoning"
     anthropic_api_key: str = ""
     claude_model: str = "claude-haiku-5-5"
     # Provider used for new accounts and as the fallback when a user's

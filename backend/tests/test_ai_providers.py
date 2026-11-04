@@ -19,12 +19,12 @@ def test_registry_keeps_order_and_default():
     reg = ProviderRegistry([FakeProvider("openai"), FakeProvider("gemini")], "gemini")
     assert reg.names() == ["openai", "gemini"]
     assert reg.default.name == "gemini"
-    assert reg.has("openai") and not reg.has("grok")
+    assert reg.has("openai") and not reg.has("claude")
     assert len(reg) == 2
 
 
 def test_registry_falls_back_to_first_when_default_disabled():
-    reg = ProviderRegistry([FakeProvider("gemini"), FakeProvider("grok")], "openai")
+    reg = ProviderRegistry([FakeProvider("gemini"), FakeProvider("claude")], "openai")
     assert reg.default.name == "gemini"
 
 
@@ -38,7 +38,7 @@ def test_registry_empty():
 def test_registry_resolve_prefers_requested_then_default():
     reg = ProviderRegistry([FakeProvider("openai"), FakeProvider("gemini")], "openai")
     assert reg.resolve("gemini").name == "gemini"
-    assert reg.resolve("grok").name == "openai"
+    assert reg.resolve("claude").name == "openai"
     assert reg.resolve(None).name == "openai"
 
 
@@ -58,7 +58,6 @@ def _settings(**overrides):
     base = dict(
         openai_api_key="", openai_model="gpt-6-luna", openai_reasoning_effort="low",
         gemini_api_key="", gemini_model="gemini-3.8-flash", gemini_thinking_level="low",
-        xai_api_key="", xai_base_url="https://api.x.ai/v1", grok_model="grok-4.20-0309-non-reasoning",
         anthropic_api_key="", claude_model="claude-haiku-5-5",
         default_ai_provider="openai", ai_request_timeout_seconds=60,
     )
@@ -67,18 +66,13 @@ def _settings(**overrides):
 
 
 def test_build_registry_enables_only_configured_keys():
-    reg = build_registry(_settings(openai_api_key="a", xai_api_key="b"))
-    assert reg.names() == ["openai", "grok"]
+    reg = build_registry(_settings(openai_api_key="a", anthropic_api_key="b"))
+    assert reg.names() == ["openai", "claude"]
     assert reg.default.name == "openai"
     openai = reg.get("openai")
     assert openai.model == "gpt-6-luna"
     assert openai.display_name == "GPT"
     assert openai._reasoning_effort == "low"
-    grok = reg.get("grok")
-    assert isinstance(grok, OpenAICompatibleProvider)
-    assert grok.model == "grok-4.20-0309-non-reasoning"
-    assert grok._base_url == "https://api.x.ai/v1"
-    assert grok._reasoning_effort is None
 
 
 def test_build_registry_empty_effort_falls_back_to_temperature():
@@ -86,12 +80,12 @@ def test_build_registry_empty_effort_falls_back_to_temperature():
     assert reg.get("openai")._reasoning_effort is None
 
 
-def test_build_registry_all_four():
+def test_build_registry_all_three():
     reg = build_registry(_settings(
-        openai_api_key="a", gemini_api_key="b", xai_api_key="c", anthropic_api_key="d",
+        openai_api_key="a", gemini_api_key="b", anthropic_api_key="d",
         default_ai_provider="gemini",
     ))
-    assert reg.names() == ["openai", "gemini", "grok", "claude"]
+    assert reg.names() == ["openai", "gemini", "claude"]
     assert reg.default.name == "gemini"
     gemini = reg.get("gemini")
     assert isinstance(gemini, GeminiProvider)
@@ -104,10 +98,10 @@ def test_build_registry_all_four():
 
 def test_build_registry_passes_request_timeout_to_every_provider():
     reg = build_registry(_settings(
-        openai_api_key="a", gemini_api_key="b", xai_api_key="c", anthropic_api_key="d",
+        openai_api_key="a", gemini_api_key="b", anthropic_api_key="d",
         ai_request_timeout_seconds=12,
     ))
-    assert [p._timeout for p in reg.all()] == [12, 12, 12, 12]
+    assert [p._timeout for p in reg.all()] == [12, 12, 12]
 
 
 def test_build_registry_none_configured():
@@ -125,6 +119,11 @@ def test_display_name_from_registry():
 def test_display_name_for_disabled_known_provider():
     set_registry(ProviderRegistry([FakeProvider("openai")], "openai"))
     assert display_name_for("gemini") == "Gemini"
+
+
+def test_display_name_for_removed_provider_in_stored_data():
+    set_registry(ProviderRegistry([FakeProvider("openai")], "openai"))
+    assert display_name_for("grok") == "Grok"
 
 
 def test_display_name_unknown_and_missing():
@@ -168,11 +167,11 @@ def test_openai_compatible_sends_reasoning_effort_instead_of_temperature():
 
 
 def test_openai_compatible_builds_client_with_base_url():
-    provider = OpenAICompatibleProvider("grok", "Grok", "grok-3-mini", api_key="k", base_url="https://api.x.ai/v1")
+    provider = OpenAICompatibleProvider("custom", "Custom", "custom-1", api_key="k", base_url="https://example.com/v1")
     with patch("app.services.ai.openai_compatible.OpenAI") as mock_openai:
         provider._get_client()
         provider._get_client()
-    mock_openai.assert_called_once_with(api_key="k", base_url="https://api.x.ai/v1", timeout=60)
+    mock_openai.assert_called_once_with(api_key="k", base_url="https://example.com/v1", timeout=60)
 
 
 def test_openai_compatible_handles_empty_content():

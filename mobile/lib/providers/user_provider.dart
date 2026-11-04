@@ -76,6 +76,7 @@ class UserNotifier extends StateNotifier<UserState> {
   Future<void> updatePreferences(
     String token, {
     bool? impactAlerts,
+    String? impactAlertLevel,
     bool? volatilityAlerts,
     String? aiProvider,
   }) async {
@@ -84,6 +85,7 @@ class UserNotifier extends StateNotifier<UserState> {
       final updated = await _repository.updatePreferences(
         token,
         impactAlerts: impactAlerts,
+        impactAlertLevel: impactAlertLevel,
         volatilityAlerts: volatilityAlerts,
         aiProvider: aiProvider,
       );

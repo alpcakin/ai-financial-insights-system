@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../core/severity.dart';
 import '../../data/models/alert_models.dart';
 import '../../widgets/ai_provider_badge.dart';
 
@@ -8,13 +9,6 @@ class AlertCard extends StatelessWidget {
   final AlertItem alert;
 
   const AlertCard({super.key, required this.alert});
-
-  Color _severityColor() {
-    final s = alert.severity ?? 5;
-    if (s >= 9) return const Color(0xFFEF4444);
-    if (s >= 7) return const Color(0xFFF97316);
-    return const Color(0xFF3B82F6);
-  }
 
   bool get _isImpact => alert.alertType == 'impact';
 
@@ -29,7 +23,7 @@ class AlertCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _severityColor();
+    final color = severityColor(alert.severity);
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
@@ -89,7 +83,7 @@ class AlertCard extends StatelessWidget {
                           border: Border.all(color: color.withAlpha(80)),
                         ),
                         child: Text(
-                          'S${alert.severity}',
+                          severityLabel(alert.severity!),
                           style: GoogleFonts.inter(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,

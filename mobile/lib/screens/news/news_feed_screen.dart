@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/severity.dart';
 import '../../data/models/news_models.dart';
 import '../../widgets/ai_provider_badge.dart';
 import '../../providers/auth_provider.dart';
@@ -235,13 +236,6 @@ class _ArticleCard extends StatelessWidget {
     }
   }
 
-  Color _severityColor() {
-    final s = article.severity ?? 5;
-    if (s >= 9) return const Color(0xFFEF4444);
-    if (s >= 7) return const Color(0xFFF97316);
-    return const Color(0xFF3B82F6);
-  }
-
   String _timeAgo() {
     if (article.publishedAt == null) return '';
     final published = DateTime.tryParse(article.publishedAt!);
@@ -355,16 +349,16 @@ class _ArticleCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
-                        color: _severityColor().withAlpha(15),
+                        color: severityColor(article.severity).withAlpha(15),
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: _severityColor().withAlpha(80)),
+                        border: Border.all(color: severityColor(article.severity).withAlpha(80)),
                       ),
                       child: Text(
-                        'S${article.severity}',
+                        severityLabel(article.severity!),
                         style: GoogleFonts.inter(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
-                          color: _severityColor(),
+                          color: severityColor(article.severity),
                         ),
                       ),
                     ),
@@ -460,7 +454,7 @@ class _ArticleDetailSheet extends StatelessWidget {
                   Container(width: 1, height: 12, color: const Color(0xFFE2E8F0)),
                   const SizedBox(width: 12),
                   Text(
-                    'Severity ${article.severity}',
+                    'Severity: ${severityLabel(article.severity!)}',
                     style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
                   ),
                 ],

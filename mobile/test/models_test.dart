@@ -13,11 +13,11 @@ void main() {
       'source': 'Reuters',
       'summary': 'Strong quarter',
       'sentiment_label': 'positive',
-      'severity': 7,
+      'severity': 3,
       'related_categories': ['Technology'],
       'related_assets': ['AAPL'],
       'asset_impacts': [
-        {'symbol': 'AAPL', 'impact': 'positive', 'severity': 7, 'reason': 'earnings'},
+        {'symbol': 'AAPL', 'impact': 'positive', 'severity': 3, 'reason': 'earnings'},
       ],
       'published_at': '2026-05-01T00:00:00Z',
       'analyzed_by': 'gemini',
@@ -29,10 +29,10 @@ void main() {
     test('parses analysis fields and provider badge data', () {
       final article = FeedArticle.fromJson(json);
       expect(article.id, 'a1');
-      expect(article.severity, 7);
+      expect(article.severity, 3);
       expect(article.relatedAssets, ['AAPL']);
       expect(article.assetImpacts.single.symbol, 'AAPL');
-      expect(article.assetImpacts.single.severity, 7);
+      expect(article.assetImpacts.single.severity, 3);
       expect(article.analyzedBy, 'gemini');
       expect(article.analyzedByName, 'Gemini');
       expect(article.isFallback, isTrue);
@@ -103,7 +103,7 @@ void main() {
         'article_id': 'a1',
         'asset_symbol': 'AAPL',
         'alert_type': 'impact',
-        'severity': 8,
+        'severity': 3,
         'message': 'AAPL: earnings',
         'notification_sent': true,
         'is_read': false,
@@ -120,7 +120,7 @@ void main() {
         'id': 'al2',
         'user_id': 'u1',
         'alert_type': 'volatility',
-        'severity': 8,
+        'severity': 3,
         'message': 'AAPL moved up 10.0% in 24 hours',
         'created_at': '2026-05-01T00:00:00Z',
       });
@@ -146,13 +146,14 @@ void main() {
       final profile = UserProfile.fromJson({
         'id': 'u1',
         'email': 'a@b.com',
-        'notification_preferences': {'impact_alerts': false},
-        'ai_provider': 'grok',
+        'notification_preferences': {'impact_alerts': false, 'impact_alert_level': 'very_high'},
+        'ai_provider': 'gemini',
         'created_at': '2026-01-01T00:00:00',
       });
       expect(profile.preferences.impactAlerts, isFalse);
+      expect(profile.preferences.impactAlertLevel, 'very_high');
       expect(profile.preferences.volatilityAlerts, isTrue);
-      expect(profile.aiProvider, 'grok');
+      expect(profile.aiProvider, 'gemini');
     });
 
     test('provider defaults to openai when absent', () {

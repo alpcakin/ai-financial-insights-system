@@ -128,7 +128,7 @@ def test_effective_provider_falls_back_when_choice_disabled():
 
 
 def test_effective_provider_keeps_enabled_choice(registry):
-    assert effective_provider({**_USER, "ai_provider": "grok"}) == "grok"
+    assert effective_provider({**_USER, "ai_provider": "claude"}) == "claude"
 
 
 def test_effective_provider_with_empty_registry_keeps_stored_value():
@@ -187,7 +187,7 @@ def test_update_without_ai_provider_does_not_touch_it():
 def test_list_ai_providers(registry):
     result = list_ai_providers()
     assert result["default"] == "openai"
-    assert [p["name"] for p in result["providers"]] == ["openai", "gemini", "grok"]
+    assert [p["name"] for p in result["providers"]] == ["openai", "gemini", "claude"]
     assert result["providers"][0]["is_default"] is True
 
 

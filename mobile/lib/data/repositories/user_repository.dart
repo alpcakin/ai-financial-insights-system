@@ -55,11 +55,13 @@ class UserRepository {
   Future<UserProfile> updatePreferences(
     String token, {
     bool? impactAlerts,
+    String? impactAlertLevel,
     bool? volatilityAlerts,
     String? aiProvider,
   }) async {
     final body = <String, dynamic>{};
     if (impactAlerts != null) body['impact_alerts'] = impactAlerts;
+    if (impactAlertLevel != null) body['impact_alert_level'] = impactAlertLevel;
     if (volatilityAlerts != null) body['volatility_alerts'] = volatilityAlerts;
     if (aiProvider != null) body['ai_provider'] = aiProvider;
 

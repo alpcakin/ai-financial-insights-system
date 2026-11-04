@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../core/severity.dart';
 import '../../data/models/report_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/report_provider.dart';
@@ -369,13 +370,6 @@ class _TopArticlesSection extends StatelessWidget {
 
   const _TopArticlesSection({required this.articles});
 
-  Color _severityColor(int? s) {
-    if (s == null) return const Color(0xFF3B82F6);
-    if (s >= 9) return const Color(0xFFEF4444);
-    if (s >= 7) return const Color(0xFFF97316);
-    return const Color(0xFF3B82F6);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -392,7 +386,7 @@ class _TopArticlesSection extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         ...articles.map((a) {
-          final color = _severityColor(a.severity);
+          final color = severityColor(a.severity);
           return Container(
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.all(12),
@@ -416,7 +410,7 @@ class _TopArticlesSection extends StatelessWidget {
                           border: Border.all(color: color.withAlpha(80)),
                         ),
                         child: Text(
-                          'S${a.severity}',
+                          severityLabel(a.severity!),
                           style: GoogleFonts.inter(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,

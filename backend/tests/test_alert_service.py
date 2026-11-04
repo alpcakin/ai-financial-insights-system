@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 from fastapi import HTTPException
 
 from app.models.alert import AlertSettingRequest
+from app.services.ai_service import SEVERITY_LEVELS
 from app.services.alert_service import (
     VOLATILITY_SIGMA,
     _severity_from_z,
@@ -17,16 +18,13 @@ from app.services.notification_service import batch_fetch_fcm_tokens
 from tests.conftest import chain_mock, make_db
 
 
-def test_severity_at_the_threshold_is_7():
-    assert _severity_from_z(VOLATILITY_SIGMA) == 7
+def test_move_at_the_threshold_is_high():
+    assert _severity_from_z(VOLATILITY_SIGMA) == SEVERITY_LEVELS["high"]
 
 
-def test_severity_steps_follow_the_old_fixed_thresholds():
-    # The old steps were 7%, 10%, 15% and 20%; they are now multiples of the threshold.
-    assert _severity_from_z(VOLATILITY_SIGMA * 10 / 7) == 8
-    assert _severity_from_z(VOLATILITY_SIGMA * 15 / 7) == 9
-    assert _severity_from_z(VOLATILITY_SIGMA * 20 / 7) == 10
-    assert _severity_from_z(VOLATILITY_SIGMA * 10 / 7 - 0.01) == 7
+def test_move_is_very_high_from_the_former_15_percent_step():
+    assert _severity_from_z(VOLATILITY_SIGMA * 15 / 7) == SEVERITY_LEVELS["very_high"]
+    assert _severity_from_z(VOLATILITY_SIGMA * 15 / 7 - 0.01) == SEVERITY_LEVELS["high"]
 
 
 def _daily_closes(last_move: float, sessions: int = 80) -> pd.Series:
@@ -97,7 +95,7 @@ def _impact_db(existing_alerts=False, portfolio_symbols=None):
     return db
 
 
-def test_impact_alert_created_severity_7():
+def test_impact_alert_created_at_high():
     db = MagicMock()
     inserted = []
 
@@ -117,7 +115,7 @@ def test_impact_alert_created_severity_7():
         return m
 
     db.table.side_effect = t
-    asset_impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 7, "reason": "bad news"}]
+    asset_impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 3, "reason": "bad news"}]
     count = generate_impact_alerts(db, "article-1", {"u1"}, asset_impacts)
 
     assert count == 1
@@ -127,7 +125,7 @@ def test_impact_alert_created_severity_7():
     assert alert["article_id"] == "article-1"
     assert alert["asset_symbol"] == "AAPL"
     assert alert["alert_type"] == "impact"
-    assert alert["severity"] == 7
+    assert alert["severity"] == 3
     assert alert["message"] == "AAPL: bad news"
 
 
@@ -155,22 +153,22 @@ def test_impact_alert_picks_highest_severity_asset_in_portfolio():
 
     db.table.side_effect = t
     asset_impacts = [
-        {"symbol": "AAPL", "impact": "negative", "severity": 7, "reason": "a"},
-        {"symbol": "MSFT", "impact": "negative", "severity": 9, "reason": "b"},
-        {"symbol": "TSLA", "impact": "negative", "severity": 10, "reason": "not held"},
+        {"symbol": "AAPL", "impact": "negative", "severity": 3, "reason": "a"},
+        {"symbol": "MSFT", "impact": "negative", "severity": 4, "reason": "b"},
+        {"symbol": "TSLA", "impact": "negative", "severity": 4, "reason": "not held"},
     ]
     count = generate_impact_alerts(db, "article-1", {"u1"}, asset_impacts)
     assert count == 1
     assert inserted[0]["asset_symbol"] == "MSFT"
-    assert inserted[0]["severity"] == 9
+    assert inserted[0]["severity"] == 4
 
 
-def test_impact_alert_skipped_severity_6():
+def test_impact_alert_skipped_at_medium():
     db = MagicMock()
     db.table.side_effect = lambda name: chain_mock(
         [{"user_id": "u1", "asset_symbol": "AAPL"}] if name == "portfolio" else []
     )
-    asset_impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 6, "reason": "minor"}]
+    asset_impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 2, "reason": "minor"}]
     count = generate_impact_alerts(db, "article-1", {"u1"}, asset_impacts)
     assert count == 0
 
@@ -193,7 +191,7 @@ def test_impact_alert_for_watchlist_asset():
         return m
 
     db.table.side_effect = t
-    asset_impacts = [{"symbol": "NVDA", "impact": "positive", "severity": 8, "reason": "export rules eased"}]
+    asset_impacts = [{"symbol": "NVDA", "impact": "positive", "severity": 3, "reason": "export rules eased"}]
     assert generate_impact_alerts(db, "article-1", {"u1"}, asset_impacts) == 1
     assert inserted[0]["asset_symbol"] == "NVDA"
 
@@ -210,7 +208,7 @@ def test_impact_alert_skips_duplicate():
         return m
 
     db.table.side_effect = t
-    asset_impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 9, "reason": "big"}]
+    asset_impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 4, "reason": "big"}]
     count = generate_impact_alerts(db, "article-1", {"u1"}, asset_impacts)
     assert count == 0
 
@@ -228,7 +226,7 @@ def test_volatility_alert_created(mock_ticker):
     assert alert["user_id"] == "u1"
     assert alert["asset_symbol"] == "AAPL"
     assert alert["alert_type"] == "volatility"
-    assert alert["severity"] == 8  # 4.5 times its usual 1% move
+    assert alert["severity"] == 3  # 4.5 times its usual 1% move
     assert alert["message"] == "AAPL moved up 4.5% since the previous close"
     assert alert["session_date"] == daily.index[-1].date().isoformat()
 
@@ -258,7 +256,7 @@ def test_volatility_alert_covers_watchlist_assets(mock_ticker):
 
     assert generate_volatility_alerts(db) == 1
     assert db.inserted[0]["asset_symbol"] == "MSFT"
-    assert db.inserted[0]["severity"] == 10
+    assert db.inserted[0]["severity"] == 4
 
 
 @patch("app.services.alert_service.yf.Ticker")
@@ -285,7 +283,7 @@ def test_crypto_volatility_uses_24_hours_and_one_alert_a_day(mock_ticker):
     assert generate_volatility_alerts(db) == 1
     alert = db.inserted[0]
     assert alert["message"] == "BTC-USD moved up 5.0% in 24 hours"
-    assert alert["severity"] == 8  # 5 times its usual 1% day
+    assert alert["severity"] == 3  # 5 times its usual 1% day
     assert alert["session_date"] == "2026-04-28"
     db.alerts.gte.assert_called_once()
     assert db.alerts.gte.call_args.args[0] == "created_at"
@@ -301,7 +299,7 @@ def test_custom_percent_below_the_default_threshold_fires(mock_ticker):
     })
 
     assert generate_volatility_alerts(db) == 1
-    assert db.inserted[0]["severity"] == 7
+    assert db.inserted[0]["severity"] == 3
 
 
 @patch("app.services.alert_service.yf.Ticker")
@@ -433,7 +431,7 @@ def test_impact_alert_stores_provider():
         return m
 
     db.table.side_effect = t
-    impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 8, "reason": "bad"}]
+    impacts = [{"symbol": "AAPL", "impact": "negative", "severity": 3, "reason": "bad"}]
     count = generate_impact_alerts(db, "article-1", {"u1"}, impacts, ai_provider="gemini")
     assert count == 1
     assert captured["ai_provider"] == "gemini"
@@ -456,7 +454,8 @@ def _impact_db(prefs):
     return db
 
 
-_SEVERE = [{"symbol": "AAPL", "impact": "negative", "severity": 8, "reason": "bad"}]
+_SEVERE = [{"symbol": "AAPL", "impact": "negative", "severity": 3, "reason": "bad"}]
+_VERY_SEVERE = [{"symbol": "AAPL", "impact": "negative", "severity": 4, "reason": "very bad"}]
 
 
 def test_impact_alert_is_stored_but_not_pushed_when_turned_off():
@@ -468,6 +467,27 @@ def test_impact_alert_is_stored_but_not_pushed_when_turned_off():
 
 def test_impact_alert_is_pushed_when_turned_on():
     db = _impact_db({"fcm_token": "tok1"})
+    with patch("app.services.alert_service.notify_alert_with_token") as notify:
+        assert generate_impact_alerts(db, "article-1", {"u1"}, _SEVERE, ai_provider="openai") == 1
+    notify.assert_called_once()
+
+
+def test_impact_alert_at_high_is_stored_but_not_pushed_for_a_very_high_choice():
+    db = _impact_db({"fcm_token": "tok1", "impact_alert_level": "very_high"})
+    with patch("app.services.alert_service.notify_alert_with_token") as notify:
+        assert generate_impact_alerts(db, "article-1", {"u1"}, _SEVERE, ai_provider="openai") == 1
+    notify.assert_not_called()
+
+
+def test_impact_alert_at_very_high_is_pushed_for_a_very_high_choice():
+    db = _impact_db({"fcm_token": "tok1", "impact_alert_level": "very_high"})
+    with patch("app.services.alert_service.notify_alert_with_token") as notify:
+        assert generate_impact_alerts(db, "article-1", {"u1"}, _VERY_SEVERE, ai_provider="openai") == 1
+    notify.assert_called_once()
+
+
+def test_impact_alert_level_choice_defaults_to_high():
+    db = _impact_db({"fcm_token": "tok1", "impact_alert_level": "high"})
     with patch("app.services.alert_service.notify_alert_with_token") as notify:
         assert generate_impact_alerts(db, "article-1", {"u1"}, _SEVERE, ai_provider="openai") == 1
     notify.assert_called_once()

@@ -1,10 +1,14 @@
+import hashlib
 import json
+
+import pytest
 
 from app.services.ai import ProviderRegistry, set_registry
 from app.services.ai_service import (
     MAX_ATTEMPTS,
     MIN_SEVERITY,
     RETRY_BASE_DELAY,
+    SEVERITY_LEVELS,
     _validate_response,
     analyze_article,
     analyze_article_all,
@@ -19,12 +23,23 @@ CATEGORY_LIST = ["Technology", "Software"]
 VALID_RESPONSE = {
     "summary": "Test summary",
     "sentiment": "positive",
-    "severity": 7,
+    "news_type": "event",
+    "certainty": "official",
+    "scope": "company",
+    "magnitude": "major",
+    "level": "high",
     "categories": ["Technology"],
     "impacted_assets": [
-        {"symbol": "AAPL", "impact": "positive", "severity": 7, "reason": "Good news"}
+        {
+            "symbol": "AAPL", "impact": "positive", "relevance": "subject",
+            "magnitude": "major", "level": "high", "reason": "Good news",
+        }
     ],
 }
+
+
+def _asset(**overrides):
+    return {"symbol": "AAPL", "impact": "positive", "relevance": "subject", "level": "medium", "reason": "x", **overrides}
 
 
 def test_prompt_contains_article_and_pools():
@@ -32,6 +47,14 @@ def test_prompt_contains_article_and_pools():
     assert "Apple beats" in prompt
     assert '"AAPL"' in prompt
     assert '"Software"' in prompt
+
+
+def test_prompt_is_the_measured_text():
+    # P2 of DEVELOPMENT_JOURNAL.md 2.58. A change here invalidates that measurement.
+    prompt = build_user_prompt("T", "D", ["AAPL"], ["Software"])
+    assert hashlib.sha256(prompt.encode()).hexdigest() == (
+        "96f728ebb1c793f8f2e483f91f19e357c5b4c6faaf875bb9ffc6ee6db3b85c27"
+    )
 
 
 def test_prompt_lists_other_reports_of_the_same_event():
@@ -64,7 +87,7 @@ def test_analyze_success_with_explicit_provider():
     result = analyze_article("Title", "Description", ASSET_POOL, CATEGORY_LIST, provider)
     assert result is not None
     assert result["sentiment"] == "positive"
-    assert result["severity"] == 7
+    assert result["severity"] == SEVERITY_LEVELS["high"]
     assert result["provider"] == "gemini"
     assert result["model"] == "fake-model"
     assert result["raw_response"] == json.dumps(VALID_RESPONSE)
@@ -90,6 +113,27 @@ def test_analyze_strips_markdown_fences():
     result = analyze_article("Title", "Description", ASSET_POOL, CATEGORY_LIST, provider)
     assert result is not None
     assert result["summary"] == "Test summary"
+
+
+def test_analyze_unwraps_a_one_item_list():
+    provider = FakeProvider("gemini", [json.dumps([VALID_RESPONSE])])
+    result = analyze_article("Title", "Description", ASSET_POOL, CATEGORY_LIST, provider)
+    assert result is not None
+    assert result["summary"] == "Test summary"
+
+
+def test_analyze_treats_a_longer_list_as_malformed():
+    provider = FakeProvider("gemini", [json.dumps([VALID_RESPONSE, VALID_RESPONSE])] * 3)
+    assert analyze_article("Title", "Description", ASSET_POOL, CATEGORY_LIST, provider) is None
+    assert provider.calls == 3
+
+
+def test_analyze_retries_when_the_article_level_is_missing():
+    without_level = {k: v for k, v in VALID_RESPONSE.items() if k != "level"}
+    provider = FakeProvider("openai", [json.dumps(without_level), json.dumps(VALID_RESPONSE)])
+    result = analyze_article("Title", "Description", ASSET_POOL, CATEGORY_LIST, provider)
+    assert result is not None
+    assert provider.calls == 2
 
 
 def test_analyze_json_error_retries_3():
@@ -140,17 +184,17 @@ def test_analyze_gives_up_after_max_transient_errors(monkeypatch):
 def test_analyze_all_returns_only_successful_providers():
     good = FakeProvider("openai", [json.dumps(VALID_RESPONSE)])
     down = FakeProvider("gemini", error=RuntimeError("api down"))
-    other = FakeProvider("grok", [json.dumps({**VALID_RESPONSE, "severity": 3})])
+    other = FakeProvider("claude", [json.dumps({**VALID_RESPONSE, "level": "low"})])
     results = analyze_article_all("T", "D", ASSET_POOL, CATEGORY_LIST, [good, down, other])
-    assert set(results) == {"openai", "grok"}
-    assert results["grok"]["severity"] == 3
+    assert set(results) == {"openai", "claude"}
+    assert results["claude"]["severity"] == SEVERITY_LEVELS["low"]
 
 
 def test_analyze_all_uses_registry_when_no_providers_given(registry):
     for provider in registry.all():
         provider.responses = [json.dumps(VALID_RESPONSE)]
     results = analyze_article_all("T", "D", ASSET_POOL, CATEGORY_LIST)
-    assert set(results) == {"openai", "gemini", "grok"}
+    assert set(results) == {"openai", "gemini", "claude"}
 
 
 def test_analyze_all_empty_registry():
@@ -164,16 +208,46 @@ def test_qualifies_threshold():
     assert not qualifies({})
 
 
-def test_validate_clamps_severity_low():
-    data = {**VALID_RESPONSE, "severity": 0, "impacted_assets": []}
+@pytest.mark.parametrize("level, severity", [("low", 1), ("medium", 2), ("high", 3), ("very_high", 4)])
+def test_validate_maps_levels_to_severity(level, severity):
+    data = {**VALID_RESPONSE, "level": level, "impacted_assets": [_asset(level=level)]}
     _validate_response(data, ASSET_POOL, CATEGORY_LIST)
-    assert data["severity"] == 1
+    assert data["severity"] == severity
+    assert data["impacted_assets"][0]["severity"] == severity
 
 
-def test_validate_clamps_severity_high():
-    data = {**VALID_RESPONSE, "severity": 11, "impacted_assets": []}
+@pytest.mark.parametrize("level", [None, "info", "HIGH", 7])
+def test_validate_rejects_an_unknown_article_level(level):
+    data = {**VALID_RESPONSE, "level": level, "impacted_assets": []}
+    with pytest.raises(ValueError):
+        _validate_response(data, ASSET_POOL, CATEGORY_LIST)
+
+
+def test_validate_drops_an_asset_with_an_unknown_level():
+    data = {**VALID_RESPONSE, "impacted_assets": [_asset(level="severe"), _asset(symbol="MSFT")]}
     _validate_response(data, ASSET_POOL, CATEGORY_LIST)
-    assert data["severity"] == 10
+    assert [a["symbol"] for a in data["impacted_assets"]] == ["MSFT"]
+
+
+def test_validate_drops_an_indirect_asset_below_medium():
+    data = {**VALID_RESPONSE, "impacted_assets": [
+        _asset(relevance="indirect", level="low"),
+        _asset(symbol="MSFT", relevance="indirect", level="medium"),
+    ]}
+    _validate_response(data, ASSET_POOL, CATEGORY_LIST)
+    assert [a["symbol"] for a in data["impacted_assets"]] == ["MSFT"]
+
+
+def test_validate_keeps_a_named_asset_at_low():
+    data = {**VALID_RESPONSE, "impacted_assets": [_asset(relevance="mentioned", level="low")]}
+    _validate_response(data, ASSET_POOL, CATEGORY_LIST)
+    assert data["impacted_assets"][0]["severity"] == SEVERITY_LEVELS["low"]
+
+
+def test_validate_accepts_null_assets():
+    data = {**VALID_RESPONSE, "impacted_assets": None}
+    _validate_response(data, ASSET_POOL, CATEGORY_LIST)
+    assert data["impacted_assets"] == []
 
 
 def test_validate_invalid_sentiment():
@@ -185,9 +259,7 @@ def test_validate_invalid_sentiment():
 def test_validate_drops_unknown_asset():
     data = {
         **VALID_RESPONSE,
-        "impacted_assets": [
-            {"symbol": "UNKNOWN", "impact": "positive", "severity": 5, "reason": "x"}
-        ],
+        "impacted_assets": [_asset(symbol="UNKNOWN")],
     }
     _validate_response(data, ASSET_POOL, CATEGORY_LIST)
     assert data["impacted_assets"] == []
@@ -196,23 +268,10 @@ def test_validate_drops_unknown_asset():
 def test_validate_normalizes_asset_impact():
     data = {
         **VALID_RESPONSE,
-        "impacted_assets": [
-            {"symbol": "AAPL", "impact": "bullish", "severity": 5, "reason": "x"}
-        ],
+        "impacted_assets": [_asset(impact="bullish")],
     }
     _validate_response(data, ASSET_POOL, CATEGORY_LIST)
     assert data["impacted_assets"][0]["impact"] == "neutral"
-
-
-def test_validate_clamps_asset_severity():
-    data = {
-        **VALID_RESPONSE,
-        "impacted_assets": [
-            {"symbol": "AAPL", "impact": "positive", "severity": 15, "reason": "x"}
-        ],
-    }
-    _validate_response(data, ASSET_POOL, CATEGORY_LIST)
-    assert data["impacted_assets"][0]["severity"] == 10
 
 
 def test_validate_filters_categories():
@@ -222,7 +281,7 @@ def test_validate_filters_categories():
 
 
 def test_validate_defaults_missing_summary():
-    data = {"sentiment": "neutral", "severity": 5}
+    data = {"sentiment": "neutral", "level": "medium"}
     _validate_response(data, ASSET_POOL, CATEGORY_LIST)
     assert data["summary"] == ""
     assert data["impacted_assets"] == []

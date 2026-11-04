@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, EmailStr, StringConstraints, field_validator
 
@@ -37,8 +37,12 @@ class RegisterResponse(BaseModel):
     email: str
 
 
+ImpactAlertLevel = Literal["high", "very_high"]
+
+
 class NotificationPreferences(BaseModel):
     impact_alerts: bool = True
+    impact_alert_level: ImpactAlertLevel = "high"
     volatility_alerts: bool = True
 
 
@@ -52,6 +56,7 @@ class UserProfileResponse(BaseModel):
 
 class UpdatePreferencesRequest(BaseModel):
     impact_alerts: bool | None = None
+    impact_alert_level: ImpactAlertLevel | None = None
     volatility_alerts: bool | None = None
     ai_provider: Annotated[str, StringConstraints(min_length=1, max_length=32)] | None = None
 
