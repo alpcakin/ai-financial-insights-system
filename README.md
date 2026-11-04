@@ -7,7 +7,7 @@ A Flutter-based Android application that monitors investment portfolios and deli
 - **Mobile**: Flutter (Android) with Riverpod state management
 - **Backend**: Python 3.12 FastAPI with an in-process APScheduler for the news, volatility, report, and cleanup jobs
 - **Database**: Supabase (PostgreSQL) with GIN indexes on array columns and pgvector for story matching
-- **AI**: pluggable providers behind one interface. OpenAI GPT (`gpt-6-luna`), Google Gemini (`gemini-3.8-flash`), xAI Grok (`grok-4.20-0309-non-reasoning`), and Anthropic Claude (`claude-haiku-5-5`) ship out of the box; model names are set in `.env`
+- **AI**: pluggable providers behind one interface. OpenAI GPT (`gpt-6-luna`), Google Gemini (`gemini-3.5-flash-lite`), xAI Grok (`grok-4.20-0309-non-reasoning`), and Anthropic Claude (`claude-haiku-5-5`) ship out of the box; model names are set in `.env`
 - **Notifications**: Firebase Cloud Messaging
 
 ## AI providers

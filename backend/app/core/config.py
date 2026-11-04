@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # get temperature 0.3 instead.
     openai_reasoning_effort: str = "low"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.8-flash"
+    gemini_model: str = "gemini-3.5-flash-lite"
     # Gemini 3 models think by default; "low" matches the effort the other
     # providers run with. Empty keeps the model default.
     gemini_thinking_level: str = "low"
