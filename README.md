@@ -28,7 +28,7 @@ To add a provider: subclass `AIProvider` with a `complete(system_prompt, user_pr
 Every `NEWS_FETCH_INTERVAL_MINUTES` (15 is a good value) the backend runs one cycle (`backend/app/tasks/news_tasks.py`):
 
 1. **Fetch** (`news_service.py`): the feeds in `FEEDS` are read with conditional requests, so an unchanged feed costs a 304. Items older than 24 hours, sponsored items and non-web links are dropped; URLs are normalized so the same article reached through two feeds is seen once.
-2. **Group** (`dedup_service.py`): each new article is embedded (`text-embedding-3-small`) and compared with the first article ("lead") of every story stored in the last 48 hours, and with stories started earlier in the same cycle. The three closest stories at or above `DEDUP_CANDIDATE_THRESHOLD` (0.65) go to the default provider, which is shown when each report was published and decides which story, if any, reports the same event. Similarity alone never joins a story: recurring reports such as daily roundups read almost the same from one day to the next.
+2. **Group** (`dedup_service.py`): each new article is embedded (`text-embedding-3-small`) and compared with the first article ("lead") of every stored story, and with stories started earlier in the same cycle. All leads at or above `DEDUP_CANDIDATE_THRESHOLD` (0.50) whose publication time is within `DEDUP_WINDOW_HOURS` (48) of the new article go to SubQ Snap (`subq-snap-1.1`, key in `SUBQ_API_KEY`). Each candidate is a separate request that returns the probability of the same event; the highest one at or above `DEDUP_MATCH_PROBABILITY` (0.936) joins the story, and a failed request counts as "not the same". Similarity alone never joins a story: recurring reports such as daily roundups read almost the same from one day to the next. Users' own API keys are never used here.
 3. **Analyze**: a new story is analyzed once by every provider. Reports of it that arrived in the same cycle go into the same prompt. Reports that arrive later are attached as extra sources: no new analysis, no new notification.
 4. **Distribute**: stories rated medium or above reach users through their portfolio and followed topics. Stories below that are stored but not shown.
 
@@ -127,5 +127,9 @@ Run the migration files in order against your Supabase project. The number prefi
 | `017_feed_fallback_flag.sql` | `is_fallback` on feed entries, set at delivery; backfills existing entries |
 | `018_story_leads_published_at.sql` | `match_story_leads` also returns `published_at` for the same-event judge (apply with the backend stopped) |
 | `019_remove_bookmarks.sql` | drops the never-used `user_news_feed.bookmarked`; the cleanup no longer keeps bookmarked entries |
+| `020_volatility_alert_session.sql` | alerts record the trading session of a move, one volatility alert per asset and session |
+| `021_asset_alert_settings.sql` | per-asset volatility alert settings for portfolio and watchlist assets |
+| `022_importance_levels.sql` | importance levels 1-4 instead of 1-10 scores; users on Grok move to the default provider |
+| `023_snap_candidates.sql` | `match_story_leads` returns every lead above a similarity threshold within a publication window, for the Snap judge (apply with the backend stopped) |
 
 Row-level security is enabled on every user-owned table. The backend connects with the service role key and is therefore not restricted by those policies; access control is enforced in the API layer through JWT authentication. RLS exists as a second line of defence so that a leaked anon key, or any client talking to Supabase directly, can only reach the rows of the authenticated user.

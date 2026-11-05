@@ -30,10 +30,15 @@ class Settings(BaseSettings):
 
     news_fetch_interval_minutes: int = 0
 
-    # Same-event detection (app.services.dedup_service). Stories at or above
-    # the candidate threshold go to the default provider, which decides.
-    dedup_candidate_threshold: float = 0.65
+    # Same-event detection (app.services.dedup_service). Story leads at or above
+    # the similarity threshold and within the window of publication time go to
+    # Snap, which decides. These values were measured together (journal 2.57):
+    # the probability cutoff is specific to this model.
+    dedup_candidate_threshold: float = 0.50
     dedup_window_hours: int = 48
+    subq_api_key: str = ""
+    snap_model: str = "subq-snap-1.1"
+    dedup_match_probability: float = 0.936
 
     # Feed entries, alerts and stories older than this are deleted once a
     # day (app.services.retention_service); 0 disables the cleanup.

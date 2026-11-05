@@ -4,10 +4,11 @@ Groups articles that report the same event, so each event is analyzed once.
 An event ("story") is represented by its first article, the lead. A new
 article is compared only with leads, never with other members, so a story
 cannot drift from one event to another through a chain of similar articles.
-Embedding similarity only picks the candidates; the judge decides every
-match, because recurring reports (daily roundups, price updates) are nearly
-identical text from one day to the next. Measurements behind this:
-DEVELOPMENT_JOURNAL.md, sections 2.14 and 2.29.
+Embedding similarity only picks the candidates; SubQ Snap decides every match,
+because recurring reports (daily roundups, price updates) are nearly identical
+text from one day to the next. The judge is part of the pipeline in every mode:
+user API keys never reach it. This is the system frozen on 2026-11-01; changing
+any of it invalidates the measurements (DEVELOPMENT_JOURNAL.md 2.57, 2.60).
 """
 
 import logging
@@ -15,21 +16,53 @@ import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
+import requests
 from openai import OpenAI
 from supabase import Client
 
 from app.core.config import settings
-from app.services.ai import get_registry
-from app.services.ai_service import _parse_json
 
 logger = logging.getLogger(__name__)
 
 EMBEDDING_MODEL = "text-embedding-3-small"
 
-#: Closest leads shown to the judge.
-MAX_CANDIDATES = 3
+SNAP_URL = "https://api.subq.ai/v1/systemone"
+SNAP_TIMEOUT_SECONDS = 30
 
-JUDGE_SYSTEM_PROMPT = "You decide whether financial news reports describe the same event."
+SAME_EVENT_QUESTION = (
+    "Do the NEW REPORT and the EARLIER REPORT describe the same event? "
+    "Use their titles, summaries and publication times."
+)
+
+SAME_EVENT_RULE = """## Same event
+
+Both reports are about one single occurrence: the same actor doing or saying the same thing at the same time. One occurrence is, for example, one announcement, one deal, one ruling, one data release, one company's results, one statement by one person, or one move of one index, asset or stock in one trading session. A report that only adds detail to the same picture is still the same event: a name for someone already in the story, exact figures, or quotes from the same statement. Different outlets, different wording, or the same piece republished under a new title do not make it a different event.
+
+Examples:
+- "A defendant walks into the courthouse" and "Adil B. walks into the courthouse" are the same event; the second report only names the defendant.
+- "Governor Y says rates will stay on hold" and "Y signals no change in rates" are the same event: one statement by one person.
+
+## Different events
+
+The main subject or the main action is not exactly the same. In particular:
+
+1. Different speakers: each statement, comment, interview or forecast is its own event. Statements by different people are different events, even on the same topic. Example: "Ahmet A. comments on the fall in bitcoin" and "Behzat C. comments on the fall in bitcoin" are different events.
+2. A statement about an occurrence is a different event from the occurrence. Example: "Bitcoin falls 10%" and "Ahmet A. says the fall in bitcoin is temporary" are different events.
+3. Analysis and opinion: a report whose main content is analysis, explanation or opinion about an occurrence (what it means, why it happened, what comes next) is a different event from the occurrence and from other analyses. Example: "Bank X reports third-quarter results" and "What Bank X's results mean for investors" are different events.
+4. Reactions and consequences: what happens because of an occurrence is a different event: a price move, a market reaction, a company's response, an investigation. Example: "Company X announces layoffs" and "Company X shares fall after the layoff announcement" are different events.
+5. Different market subjects are different events, even in the same session. Example: "The Nasdaq falls 2%" and "The S&P 500 falls 1.5%" are different events, and so are "Stocks plunge" and "Volatility jumps as stocks plunge".
+6. The same company, person or topic is not enough: different news about the same subject is a different event.
+7. A follow-up with a new development (new figures, a second deal, a next step) is a different event.
+8. Recurring reports from different days or sessions are different events: market wraps, price updates, lists of movers.
+9. A preview of a scheduled event (a budget, a rate decision, company results) and the report of its outcome are different events.
+10. A newsletter, show or roundup covering several stories is the same event as another report only if its main story is that same occurrence.
+"""
+
+_same_event, _different_events = SAME_EVENT_RULE.split("## Different events")
+SAME_EVENT_CRITERIA = {
+    "true": "Same event: " + _same_event.replace("## Same event", "").strip(),
+    "false": "Different events: " + _different_events.strip(),
+}
 
 
 @dataclass
@@ -66,11 +99,14 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)))
 
 
-def _stored_candidates(db: Client, embedding: list[float], since: datetime) -> list[dict]:
+def _stored_candidates(
+    db: Client, embedding: list[float], published_from: datetime, published_to: datetime,
+) -> list[dict]:
     result = db.rpc("match_story_leads", {
         "query_embedding": embedding,
-        "since": since.isoformat(),
-        "match_count": MAX_CANDIDATES,
+        "min_similarity": settings.dedup_candidate_threshold,
+        "published_from": published_from.isoformat(),
+        "published_to": published_to.isoformat(),
     }).execute()
     return [
         {
@@ -102,39 +138,52 @@ def _describe(report: dict, new_report_time: datetime | None = None) -> str:
     return f'{when} {report["source"]}: "{report["title"]}" - "{report["description"]}"'
 
 
-def build_judge_prompt(article: dict, candidates: list[dict]) -> str:
-    new_report_time = _published(article)
-    earlier = "\n".join(f"{i}. {_describe(c, new_report_time)}" for i, c in enumerate(candidates, 1))
-    return f"""NEW REPORT:
-{_describe(article)}
+def build_snap_request(article: dict, candidate: dict) -> dict:
+    state = f"NEW REPORT:\n{_describe(article)}\n\nEARLIER REPORT:\n{_describe(candidate, _published(article))}"
+    return {
+        "model": settings.snap_model,
+        "state": state,
+        "questions": {"same_event": {
+            "type": "noul",
+            "instructions": SAME_EVENT_QUESTION,
+            "criteria": SAME_EVENT_CRITERIA,
+        }},
+    }
 
-EARLIER REPORTS:
-{earlier}
 
-Does the new report describe the same event as one of the earlier reports?
-- Same event: one specific occurrence, such as an announcement, deal, ruling, data release or market move, reported by different outlets or rewritten by the same outlet.
-- Not the same event: a follow-up that reports a new development, different news about the same company or topic, or a recurring report (market wrap, price update, list of movers) from a different day or session.
-- A preview of a scheduled event (a budget, a rate decision, company results) and the report of its outcome are different events.
-
-Respond ONLY with valid JSON: {{"match": <number of the earlier report that describes the same event, or 0 if none>}}"""
+def _same_event_probability(article: dict, candidate: dict) -> float:
+    try:
+        response = requests.post(
+            SNAP_URL,
+            headers={"Authorization": f"Bearer {settings.subq_api_key}"},
+            json=build_snap_request(article, candidate),
+            timeout=SNAP_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        probability = float(response.json()["answers"]["same_event"]["noul"])
+        if not 0 <= probability <= 1:
+            raise ValueError(f"probability out of range: {probability}")
+    except Exception as e:
+        logger.warning("Same-event judge failed for %s: %s", article["url"], e)
+        return 0.0
+    return probability
 
 
 def judge_same_event(article: dict, candidates: list[dict]) -> int | None:
-    """Index of the candidate reporting the same event, or None.
+    """Index of the candidate most likely to report the same event, or None.
 
-    Uses the default provider. Any failure counts as "no match": the worst
-    outcome is then a duplicate card, never a story hidden inside another.
+    Each candidate is a separate request, the form that was measured. A failed
+    request counts as "not the same": the worst outcome is then a duplicate card,
+    never a story hidden inside another.
     """
-    provider = get_registry().default
-    if provider is None:
+    if not settings.subq_api_key:
+        logger.warning("SUBQ_API_KEY is not set, %s becomes a new story", article["url"])
         return None
-    try:
-        raw = provider.complete(JUDGE_SYSTEM_PROMPT, build_judge_prompt(article, candidates))
-        match = int(_parse_json(raw)["match"])
-    except Exception as e:
-        logger.warning("Same-event judge failed for %s: %s", article["url"], e)
-        return None
-    return match - 1 if 1 <= match <= len(candidates) else None
+    probabilities = [_same_event_probability(article, c) for c in candidates]
+    # max keeps the first of equal values, and candidates come closest first.
+    best = max(range(len(candidates)), key=probabilities.__getitem__)
+    logger.info("Snap asked about %d candidates, best p %.3f: %s", len(candidates), probabilities[best], article["title"])
+    return best if probabilities[best] >= settings.dedup_match_probability else None
 
 
 def assign_stories(db: Client, articles: list[dict]) -> tuple[list[Story], list[Attachment]]:
@@ -155,13 +204,14 @@ def assign_stories(db: Client, articles: list[dict]) -> tuple[list[Story], list[
             article["embedding"] = None
         return [Story(lead=a) for a in articles], []
 
-    since = datetime.now(timezone.utc) - timedelta(hours=settings.dedup_window_hours)
+    window = timedelta(hours=settings.dedup_window_hours)
     stories: list[Story] = []
     attachments: list[Attachment] = []
 
     for article, embedding in zip(articles, embeddings):
         article["embedding"] = embedding
-        candidates = _stored_candidates(db, embedding, since) + [
+        published = _published(article)
+        candidates = _stored_candidates(db, embedding, published - window, published + window) + [
             {
                 "story": story,
                 "source": story.lead["source"],
@@ -171,12 +221,13 @@ def assign_stories(db: Client, articles: list[dict]) -> tuple[list[Story], list[
                 "similarity": _cosine(embedding, story.lead["embedding"]),
             }
             for story in stories
+            if abs(_published(story.lead) - published) <= window
         ]
         candidates = sorted(
             (c for c in candidates if c["similarity"] >= settings.dedup_candidate_threshold),
             key=lambda c: c["similarity"],
             reverse=True,
-        )[:MAX_CANDIDATES]
+        )
 
         match = None
         if candidates:

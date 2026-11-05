@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from app.core.rate_limit import email_limiter, login_limiter
@@ -78,6 +78,17 @@ def _default_registry():
     set_registry(ProviderRegistry([FakeProvider("openai")], "openai"))
     yield
     set_registry(None)
+
+
+@pytest.fixture(autouse=True)
+def snap_http():
+    """Pipeline tests must never reach Snap with the real key from .env.
+
+    A bare MagicMock response would read as probability 1.0, so unscripted calls fail.
+    """
+    with patch("app.services.dedup_service.requests") as mock_requests:
+        mock_requests.post.side_effect = AssertionError("unscripted Snap call")
+        yield mock_requests
 
 
 @pytest.fixture(autouse=True)
