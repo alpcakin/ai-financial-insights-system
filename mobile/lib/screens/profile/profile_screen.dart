@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../data/models/user_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/user_provider.dart';
+import '../manual/manual_mode_screen.dart';
 import '../privacy/privacy_policy_screen.dart';
 import '../sources/news_sources_screen.dart';
 
@@ -348,6 +349,23 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
 
             const SizedBox(height: 8),
+            _SectionHeader(title: 'News Mode'),
+
+            _SettingsTile(
+              child: ListTile(
+                title: Text('News package and my sources',
+                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500)),
+                subtitle: Text('Use your own feeds and API keys',
+                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B))),
+                trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8)),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ManualModeScreen()),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
             _SectionHeader(title: 'AI Analysis'),
 
             _SettingsTile(
@@ -373,9 +391,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
               child: Text(
-                'Every article is analyzed by all available models. Your feed and alerts '
-                'show the view of the model you pick here; if it has no result for an '
-                'article, another model\'s analysis is shown and marked.',
+                'Every article of the news package is analyzed by all available models. '
+                'Your feed and alerts show the view of the model you pick here; if it has '
+                'no result for an article, another model\'s analysis is shown and marked. '
+                'Your own sources use the model you pick under News Mode.',
                 style: GoogleFonts.inter(
                   fontSize: 11,
                   color: const Color(0xFF94A3B8),

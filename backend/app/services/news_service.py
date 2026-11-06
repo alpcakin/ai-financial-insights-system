@@ -129,6 +129,15 @@ def parse_feed(content: bytes, outlet: str, now: datetime | None = None) -> list
     return articles
 
 
+def read_feed_title(content: bytes) -> str | None:
+    """The feed's own title. Raises when the content is not an RSS or Atom document."""
+    root = ElementTree.fromstring(content)
+    if _local(root.tag) not in ("rss", "feed", "RDF"):
+        raise ValueError("not a feed")
+    channel = next((e for e in root if _local(e.tag) == "channel"), root)
+    return _plain(_child_text(channel, "title")) or None
+
+
 def _download(feed: Feed) -> bytes | None:
     """Fetch a feed body, or None when the feed is unchanged since the last fetch."""
     headers = dict(HEADERS)
@@ -176,11 +185,13 @@ def fetch_articles(feeds: tuple[Feed, ...] = FEEDS) -> list[dict]:
     return sorted(by_url.values(), key=lambda a: a["published_at"])
 
 
-def filter_new_articles(db: Client, articles: list[dict]) -> list[dict]:
+def filter_new_articles(db: Client, articles: list[dict], owner_id: str | None = None) -> list[dict]:
+    """Articles not stored yet in this workspace: the shared one, or the owner's."""
     urls = [a["url"] for a in articles]
     existing_urls: set[str] = set()
     # The URL list goes into the query string, so keep each request short.
     for i in range(0, len(urls), 50):
-        result = db.table("articles").select("url").in_("url", urls[i:i + 50]).execute()
-        existing_urls.update(row["url"] for row in result.data)
+        query = db.table("articles").select("url").in_("url", urls[i:i + 50])
+        query = query.eq("owner_id", owner_id) if owner_id else query.is_("owner_id", "null")
+        existing_urls.update(row["url"] for row in query.execute().data)
     return [a for a in articles if a["url"] not in existing_urls]

@@ -1,4 +1,5 @@
-from pydantic import field_validator
+from cryptography.fernet import Fernet
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -46,6 +47,13 @@ class Settings(BaseSettings):
 
     volatility_check_interval_minutes: int = 0
 
+    # How often manual mode looks for sources that are due; each source then has
+    # its own interval. 0 turns manual mode's fetching off.
+    manual_check_interval_minutes: int = 0
+    # Encrypts the API keys users store. Without it no model can be added.
+    # Keep a backup: if it is lost, users have to enter their keys again.
+    user_key_encryption_key: str = ""
+
     firebase_credentials_path: str = "firebase-service-account.json"
 
     resend_api_key: str = ""
@@ -67,6 +75,18 @@ class Settings(BaseSettings):
         if len(v) < 32:
             raise ValueError("JWT_SECRET_KEY must be at least 32 characters")
         return v
+
+    @model_validator(mode="after")
+    def validate_user_key_encryption_key(self) -> "Settings":
+        key = self.user_key_encryption_key
+        if key:
+            if key == self.jwt_secret_key:
+                raise ValueError("USER_KEY_ENCRYPTION_KEY must not be the JWT secret")
+            try:
+                Fernet(key)
+            except ValueError as e:
+                raise ValueError("USER_KEY_ENCRYPTION_KEY must be a Fernet key") from e
+        return self
 
 
 settings = Settings()

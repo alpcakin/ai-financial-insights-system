@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.routers import auth, portfolio, watchlist, users
-from app.routers import feed, alerts, reports, topics, assets
+from app.routers import feed, alerts, manual, reports, topics, assets
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     from apscheduler.schedulers.background import BackgroundScheduler
     from app.core.database import get_db
+    from app.tasks.manual_tasks import process_manual_cycle, shutdown_manual_workers
     from app.tasks.news_tasks import process_news_cycle, stop_requested
     from app.tasks.report_tasks import generate_weekly_reports
     from app.services.alert_service import generate_volatility_alerts
@@ -55,6 +56,15 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Volatility check scheduled every %d min", settings.volatility_check_interval_minutes)
 
+    if settings.manual_check_interval_minutes > 0:
+        scheduler.add_job(
+            process_manual_cycle,
+            "interval",
+            minutes=settings.manual_check_interval_minutes,
+            misfire_grace_time=60,
+        )
+        logger.info("Manual mode sources checked every %d min", settings.manual_check_interval_minutes)
+
     if settings.retention_days > 0:
         def _retention():
             try:
@@ -87,6 +97,7 @@ async def lifespan(app: FastAPI):
     yield
     stop_requested.set()
     scheduler.shutdown()
+    shutdown_manual_workers()
 
 
 app = FastAPI(title="AI Financial Insights API", version="1.0.0", lifespan=lifespan)
@@ -110,6 +121,7 @@ app.include_router(alerts.router)
 app.include_router(reports.router)
 app.include_router(topics.router)
 app.include_router(assets.router)
+app.include_router(manual.router)
 
 
 @app.get("/health")

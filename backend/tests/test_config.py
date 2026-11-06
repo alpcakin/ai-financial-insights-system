@@ -6,6 +6,7 @@ def test_tests_never_see_real_api_keys():
     assert settings.openai_api_key == "sk-fake-openai-key-for-testing"
     assert settings.gemini_api_key == ""
     assert settings.anthropic_api_key == ""
+    assert settings.subq_api_key == "fake-subq-key"
 
 
 def test_new_defaults():

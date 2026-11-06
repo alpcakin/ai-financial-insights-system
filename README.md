@@ -28,13 +28,30 @@ To add a provider: subclass `AIProvider` with a `complete(system_prompt, user_pr
 Every `NEWS_FETCH_INTERVAL_MINUTES` (15 is a good value) the backend runs one cycle (`backend/app/tasks/news_tasks.py`):
 
 1. **Fetch** (`news_service.py`): the feeds in `FEEDS` are read with conditional requests, so an unchanged feed costs a 304. Items older than 24 hours, sponsored items and non-web links are dropped; URLs are normalized so the same article reached through two feeds is seen once.
-2. **Group** (`dedup_service.py`): each new article is embedded (`text-embedding-3-small`) and compared with the first article ("lead") of every stored story, and with stories started earlier in the same cycle. All leads at or above `DEDUP_CANDIDATE_THRESHOLD` (0.50) whose publication time is within `DEDUP_WINDOW_HOURS` (48) of the new article go to SubQ Snap (`subq-snap-1.1`, key in `SUBQ_API_KEY`). Each candidate is a separate request that returns the probability of the same event; the highest one at or above `DEDUP_MATCH_PROBABILITY` (0.936) joins the story, and a failed request counts as "not the same". Similarity alone never joins a story: recurring reports such as daily roundups read almost the same from one day to the next. Users' own API keys are never used here.
+2. **Group** (`dedup_service.py`): each new article is embedded (`text-embedding-3-small`) and compared with the first article ("lead") of every stored story, and with stories started earlier in the same cycle. All leads at or above `DEDUP_CANDIDATE_THRESHOLD` (0.50) whose publication time is within `DEDUP_WINDOW_HOURS` (48) of the new article go to SubQ Snap (`subq-snap-1.1`, key in `SUBQ_API_KEY`). Each candidate is a separate request that returns the probability of the same event; the highest one at or above `DEDUP_MATCH_PROBABILITY` (0.936) joins the story, and a failed request counts as "not the same". Similarity alone never joins a story: recurring reports such as daily roundups read almost the same from one day to the next. Users' own API keys are never used here; manual mode can only turn this step on or off.
 3. **Analyze**: a new story is analyzed once by every provider. Reports of it that arrived in the same cycle go into the same prompt. Reports that arrive later are attached as extra sources: no new analysis, no new notification.
 4. **Distribute**: stories rated medium or above reach users through their portfolio and followed topics. Stories below that are stored but not shown.
 
 The feed returns every outlet that reported a story (`sources`), and `GET /feed/sources` lists the feeds for the app's News Sources screen.
 
 Once a day, feed entries and alerts older than `RETENTION_DAYS` (30) are deleted, together with stories no feed entry points to any more (`purge_old_data`, migrations 015 and 019).
+
+## Asset news
+
+The feed is a stored log: an entry is written when a story arrives and is not rewritten later, so nothing appears between entries the user has read, and adding or removing an asset or changing the model only affects what comes next. To read about any catalog asset, the app calls `GET /feed/asset-news?symbol=XOM`, which reads stored analyses on demand (last 30 days, the user's model, low importance included) through the `asset_news` function and makes no AI call. The asset can be added to the watchlist from that screen. `GET /feed/{article_id}/analyses` returns every model's analysis of one story, so models can be compared on the same article.
+
+## Manual mode
+
+A user can read their own RSS feeds with their own API keys, in a workspace no one else sees, instead of or alongside the shared package (`/manual/*`, `backend/app/tasks/manual_tasks.py`). Portfolio, watchlist and topics are shared by both modes.
+
+- **Sources:** up to 20 RSS or Atom addresses, each checked when added and read at its own interval (at least 5 minutes). One URL is fetched once however many users follow it. What a feed holds when it is added or switched back on counts as seen; only what arrives later is analyzed.
+- **Models:** OpenAI, Gemini, Claude or an OpenAI-compatible https address. Adding one makes one test call that has to pass the shared validation. Every working model analyzes every new story with the shared prompt; the feed and alerts use the one the user picked, and fall back only among their own models, flagged.
+- **Grouping:** off by default, so every article is its own card. Turning it on runs the same frozen system as the package (system keys, embedding and Snap), comparing only within the user's own articles. If it cannot run, the user's articles wait for the next fetch instead of being analyzed one by one.
+- **Failures:** a rejected key or an empty account stops that model until the user tries it again, with a notification; with no working model left, fetching stops. Rate limits and outages wait for the next fetch. A story every model failed on alone appears marked "Analysis failed".
+- **Isolation:** `articles.owner_id` is NULL for the package and the owner otherwise. The seen check, candidate search, distribution and `asset_news` all stay inside one workspace, and deleting the account removes the workspace.
+- **Security:** user-supplied addresses go through `core/safe_http.py`: http(s) only, no credentials, every request and redirect resolves the host, refuses non-public addresses and connects to the address it checked, with size and time limits. Keys are encrypted with `USER_KEY_ENCRYPTION_KEY` (`core/key_vault.py`), are never returned (only the last 4 characters), and only the error type and status of a user model are logged.
+
+To run it, set `USER_KEY_ENCRYPTION_KEY` and `MANUAL_CHECK_INTERVAL_MINUTES` (see `.env.example`), and serve the backend over HTTPS before anyone enters a real key: the app warns when its connection is not encrypted. Back up the encryption key outside the database; if it is lost, users have to enter their keys again.
 
 ## Assets and accounts
 
@@ -50,11 +67,11 @@ Once a day, feed entries and alerts older than `RETENTION_DAYS` (30) are deleted
 ```
 ├── backend/          # FastAPI backend
 │   ├── app/
-│   │   ├── core/     # Config, security, database
+│   │   ├── core/     # Config, security, database, encrypted keys, guarded HTTP
 │   │   ├── models/   # Pydantic request/response models
 │   │   ├── routers/  # API route handlers
 │   │   ├── services/ # Business logic; ai/ holds one transport per AI provider
-│   │   └── tasks/    # Scheduled news cycle and weekly report
+│   │   └── tasks/    # Scheduled news cycle, manual mode cycle and weekly report
 │   ├── tests/        # pytest suite
 │   └── requirements.txt
 ├── mobile/           # Flutter Android application
@@ -131,5 +148,7 @@ Run the migration files in order against your Supabase project. The number prefi
 | `021_asset_alert_settings.sql` | per-asset volatility alert settings for portfolio and watchlist assets |
 | `022_importance_levels.sql` | importance levels 1-4 instead of 1-10 scores; users on Grok move to the default provider |
 | `023_snap_candidates.sql` | `match_story_leads` returns every lead above a similarity threshold within a publication window, for the Snap judge (apply with the backend stopped) |
+| `024_asset_news.sql` | `asset_news` function: an asset's recent stored news, read on demand |
+| `025_manual_mode.sql` | manual mode: mode settings on users, `user_sources`, `user_models`, `articles.owner_id` with one URL per workspace, `provider_label`, `model_stopped` alerts; `match_story_leads` and `asset_news` scoped to a workspace (apply with the backend stopped) |
 
 Row-level security is enabled on every user-owned table. The backend connects with the service role key and is therefore not restricted by those policies; access control is enforced in the API layer through JWT authentication. RLS exists as a second line of defence so that a leaked anon key, or any client talking to Supabase directly, can only reach the rows of the authenticated user.

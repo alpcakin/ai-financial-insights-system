@@ -162,6 +162,45 @@ def test_get_feed_200(client, mock_db):
     assert r.status_code == 200
 
 
+def test_asset_news_200(client, mock_db):
+    mock_db.rpc.return_value.execute.return_value.data = [{
+        "id": "a1", "title": "T", "url": "https://x", "source": "CNBC", "published_at": None,
+        "provider": "openai", "summary": "S", "sentiment_label": "neutral", "severity": 1,
+        "related_categories": [], "related_assets": ["AAPL"], "asset_impacts": [],
+        "read": False, "total": 1, "owner_id": None, "provider_label": None,
+    }]
+    r = client.get("/feed/asset-news", params={"symbol": "AAPL"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1 and body["articles"][0]["severity"] == 1
+
+
+def test_asset_news_unknown_symbol_404(client):
+    assert client.get("/feed/asset-news", params={"symbol": "NOPE"}).status_code == 404
+
+
+def test_asset_news_needs_a_symbol(client):
+    assert client.get("/feed/asset-news").status_code == 422
+
+
+def test_article_analyses_200(client, mock_db):
+    rows = {
+        "articles": [{"owner_id": None}],
+        "article_analyses": [{
+            "provider": "openai", "summary": "S", "sentiment_label": "neutral", "severity": 2,
+            "related_categories": [], "related_assets": [], "asset_impacts": [],
+        }],
+    }
+    mock_db.table.side_effect = lambda name: chain_mock(rows.get(name, []))
+    r = client.get("/feed/00000000-0000-0000-0000-000000000001/analyses")
+    assert r.status_code == 200
+    assert r.json()["analyses"][0]["provider_name"]
+
+
+def test_article_analyses_rejects_a_bad_id(client):
+    assert client.get("/feed/not-a-uuid/analyses").status_code == 422
+
+
 def test_feed_sources_lists_outlets(client):
     r = client.get("/feed/sources")
     assert r.status_code == 200
@@ -398,3 +437,80 @@ def test_delete_me_204(client, mock_db):
 
 def test_volatility_check_cannot_be_triggered_by_users(client):
     assert client.post("/alerts/volatility-check").status_code == 404
+
+
+# ── Manual mode ──────────────────────────────────────────────────────────────
+
+MODEL_ROW = {
+    "id": "m1", "kind": "openai", "model": "gpt-x", "label": "Mine", "base_url": None,
+    "key_last4": "1234", "stopped_reason": None, "created_at": "2026-11-05T00:00:00",
+    "encrypted_key": "gAAAA-encrypted", "user_id": "user-123",
+}
+SOURCE_ROW = {
+    "id": "s1", "url": "https://x.test/rss", "name": "Mine", "fetch_interval_minutes": 15, "enabled": True,
+    "last_fetched_at": None, "last_error": None, "created_at": "2026-11-05T00:00:00",
+    "baseline_urls": ["https://x.test/a"], "needs_baseline": False, "user_id": "user-123",
+}
+ANY_ID = "00000000-0000-0000-0000-000000000001"
+
+
+@pytest.mark.parametrize("method, path", [
+    ("get", "/manual/settings"), ("patch", "/manual/settings"), ("get", "/manual/sources"), ("post", "/manual/sources"),
+    ("patch", f"/manual/sources/{ANY_ID}"), ("delete", f"/manual/sources/{ANY_ID}"), ("get", "/manual/models"),
+    ("post", "/manual/models"), ("post", f"/manual/models/{ANY_ID}/retry"), ("delete", f"/manual/models/{ANY_ID}"),
+    ("get", "/feed/asset-news?symbol=AAPL"), ("get", f"/feed/{ANY_ID}/analyses"),
+])
+def test_manual_routes_need_a_login(auth_client, method, path):
+    assert getattr(auth_client, method)(path).status_code in (401, 403)
+
+
+def test_manual_settings_defaults(client):
+    body = client.get("/manual/settings").json()
+    assert body["package_enabled"] is True and body["manual_enabled"] is False and body["grouping_enabled"] is False
+
+
+def test_model_list_response_has_no_stored_key(client, mock_db):
+    mock_db.table.side_effect = lambda name: chain_mock([MODEL_ROW])
+    r = client.get("/manual/models")
+    assert r.status_code == 200
+    assert "encrypted_key" not in r.json()[0] and r.json()[0]["key_last4"] == "1234"
+
+
+def test_source_list_response_has_no_baseline(client, mock_db):
+    mock_db.table.side_effect = lambda name: chain_mock([SOURCE_ROW])
+    r = client.get("/manual/sources")
+    assert r.status_code == 200 and "baseline_urls" not in r.json()[0]
+
+
+@pytest.mark.parametrize("interval", [4, 1441])
+def test_source_interval_has_limits(client, interval):
+    body = {"url": "https://x.test/rss", "fetch_interval_minutes": interval}
+    assert client.post("/manual/sources", json=body).status_code == 422
+
+
+def test_model_kind_has_to_be_known(client):
+    body = {"kind": "other", "model": "m", "api_key": "12345678"}
+    assert client.post("/manual/models", json=body).status_code == 422
+
+
+def test_compatible_model_needs_an_address(client):
+    body = {"kind": "compatible", "model": "m", "api_key": "12345678"}
+    r = client.post("/manual/models", json=body)
+    assert r.status_code == 400 and "12345678" not in r.text
+
+
+@pytest.mark.parametrize("path", [f"/manual/sources/not-a-uuid", f"/manual/models/not-a-uuid"])
+def test_manual_ids_have_to_be_uuids(client, path):
+    assert client.delete(path).status_code == 422
+
+
+def test_selected_model_has_to_be_a_uuid(client):
+    assert client.patch("/manual/settings", json={"selected_model_id": "x"}).status_code == 422
+
+
+def test_export_lists_sources_and_models_but_no_keys(client, mock_db):
+    mock_db.table.side_effect = lambda name: chain_mock([])
+    r = client.get("/users/me/export")
+    assert r.status_code == 200
+    manual = r.json()["manual_mode"]
+    assert manual["manual_enabled"] is False and manual["models"] == [] and manual["sources"] == []

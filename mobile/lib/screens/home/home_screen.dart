@@ -1285,9 +1285,11 @@ class _CompactAlertRow extends StatelessWidget {
               border: Border.all(color: color.withAlpha(60)),
             ),
             child: Icon(
-              alert.alertType == 'impact'
-                  ? Icons.article_rounded
-                  : Icons.trending_up_rounded,
+              alert.alertType == 'model_stopped'
+                  ? Icons.warning_amber_rounded
+                  : alert.alertType == 'impact'
+                      ? Icons.article_rounded
+                      : Icons.trending_up_rounded,
               color: color,
               size: 16,
             ),

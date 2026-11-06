@@ -21,7 +21,9 @@ stop_requested = threading.Event()
 
 
 def _analysis_row(article_id: str, analysis: dict) -> dict:
+    label = {"provider_label": analysis["provider_label"]} if analysis.get("provider_label") else {}
     return {
+        **label,
         "article_id": article_id,
         "provider": analysis["provider"],
         "model": analysis.get("model"),
@@ -36,7 +38,7 @@ def _analysis_row(article_id: str, analysis: dict) -> dict:
     }
 
 
-def _article_row(article: dict, **extra) -> dict:
+def article_row(article: dict, **extra) -> dict:
     return {
         "title": article["title"],
         "url": article["url"],
@@ -48,42 +50,63 @@ def _article_row(article: dict, **extra) -> dict:
     }
 
 
-def _report(article: dict) -> dict:
+def report_of(article: dict) -> dict:
     return {"source": article["source"], "title": article["title"], "description": article["description"]}
+
+
+def store_story(db, story: Story, analyses: dict[str, dict], owner_id: str | None = None) -> tuple[str | None, list[dict]]:
+    """Store a story's articles and analyses in one workspace. Returns the lead's id and the analysis rows."""
+    scope = {"owner_id": owner_id} if owner_id else {}
+    grouped = story.members[: MAX_REPORTS_PER_ANALYSIS - 1]
+    inserted = db.table("articles").insert(
+        article_row(story.lead, analyzed_report_count=1 + len(grouped), **scope)
+    ).execute().data
+    if not inserted:
+        logger.error("Failed to store article: %s", story.lead["url"])
+        return None, []
+    article_id = inserted[0]["id"]
+
+    if story.members:
+        db.table("articles").insert([
+            article_row(m, duplicate_of=article_id, duplicate_similarity=m["duplicate_similarity"], **scope)
+            for m in story.members
+        ]).execute()
+
+    rows = [_analysis_row(article_id, a) for a in analyses.values()]
+    stored = (db.table("article_analyses").insert(rows).execute().data or []) if rows else []
+    return article_id, stored
+
+
+def send_impact_alerts(db, article_id: str, stored: list[dict], assignments: dict[str, set[str]]) -> None:
+    analyses_by_id = {row["id"]: row for row in stored}
+    for analysis_id, user_ids in assignments.items():
+        analysis = analyses_by_id[analysis_id]
+        impacts = analysis.get("asset_impacts") or []
+        if user_ids and impacts:
+            generate_impact_alerts(
+                db, article_id, user_ids, impacts,
+                ai_provider=analysis.get("provider_label") or analysis["provider"],
+            )
 
 
 def _process_story(db, story: Story, asset_pool, category_list, default_provider) -> str:
     """Analyze, store and distribute one new story. Returns the outcome for the cycle summary."""
     lead = story.lead
-    grouped = story.members[: MAX_REPORTS_PER_ANALYSIS - 1]
     analyses = analyze_article_all(
         title=lead["title"],
         description=lead["description"],
         asset_pool=asset_pool,
         category_list=category_list,
-        other_reports=[_report(m) for m in grouped] or None,
+        other_reports=[report_of(m) for m in story.members[: MAX_REPORTS_PER_ANALYSIS - 1]] or None,
     )
     if not analyses:
         # Nothing is stored, so the story is tried again in the next cycle.
         logger.warning("All providers failed, retrying next cycle: %s", lead["url"])
         return "failed"
 
-    inserted = db.table("articles").insert(
-        _article_row(lead, analyzed_report_count=1 + len(grouped))
-    ).execute().data
-    if not inserted:
-        logger.error("Failed to store article: %s", lead["url"])
+    article_id, stored = store_story(db, story, analyses)
+    if article_id is None:
         return "failed"
-    article_id = inserted[0]["id"]
-
-    if story.members:
-        db.table("articles").insert([
-            _article_row(m, duplicate_of=article_id, duplicate_similarity=m["duplicate_similarity"])
-            for m in story.members
-        ]).execute()
-
-    rows = [_analysis_row(article_id, a) for a in analyses.values()]
-    stored = db.table("article_analyses").insert(rows).execute().data or []
 
     if not any(qualifies(a) for a in analyses.values()):
         severities = {name: a["severity"] for name, a in analyses.items()}
@@ -91,12 +114,7 @@ def _process_story(db, story: Story, asset_pool, category_list, default_provider
         return "low_severity"
 
     assignments = distribute_article(db, article_id, stored, default_provider)
-    analyses_by_id = {row["id"]: row for row in stored}
-    for analysis_id, user_ids in assignments.items():
-        analysis = analyses_by_id[analysis_id]
-        impacts = analysis.get("asset_impacts") or []
-        if user_ids and impacts:
-            generate_impact_alerts(db, article_id, user_ids, impacts, ai_provider=analysis["provider"])
+    send_impact_alerts(db, article_id, stored, assignments)
 
     logger.info(
         "Stored story with %d reports and %d analyses: %s",
@@ -122,7 +140,7 @@ def process_news_cycle():
     stories, attachments = assign_stories(db, new_articles)
 
     for attachment in attachments:
-        db.table("articles").insert(_article_row(
+        db.table("articles").insert(article_row(
             attachment.article,
             duplicate_of=attachment.lead_id,
             duplicate_similarity=attachment.similarity,

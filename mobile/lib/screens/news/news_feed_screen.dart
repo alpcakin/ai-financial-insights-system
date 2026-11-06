@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/severity.dart';
+import '../../data/models/asset_catalog.dart';
 import '../../data/models/news_models.dart';
-import '../../widgets/ai_provider_badge.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/news_provider.dart';
+import '../home/asset_browser_modal.dart';
 import '../topics/topics_screen.dart';
+import 'article_widgets.dart';
+import 'asset_news_screen.dart';
 
 class NewsFeedScreen extends ConsumerStatefulWidget {
   const NewsFeedScreen({super.key});
@@ -18,13 +19,40 @@ class NewsFeedScreen extends ConsumerStatefulWidget {
 }
 
 class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
+  final _scroll = ScrollController();
+
   @override
   void initState() {
     super.initState();
+    _scroll.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final token = ref.read(authProvider).token ?? '';
       ref.read(newsProvider.notifier).load(token);
     });
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scroll.position.extentAfter < 400) {
+      ref.read(newsProvider.notifier).loadMore(ref.read(authProvider).token ?? '');
+    }
+  }
+
+  Future<void> _searchAsset() async {
+    final asset = await showDialog<AssetInfo>(
+      context: context,
+      builder: (_) => const AssetBrowserModal(),
+    );
+    if (asset == null || !mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => AssetNewsScreen(asset: asset)),
+    );
   }
 
   Future<void> _refresh() async {
@@ -87,6 +115,11 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.search_rounded, size: 22),
+            tooltip: 'Search news by asset',
+            onPressed: _searchAsset,
+          ),
+          IconButton(
             icon: const Icon(Icons.interests_rounded, size: 20),
             onPressed: () => Navigator.push(
               context,
@@ -145,9 +178,14 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
                                       ),
                                     ),
                                     const SizedBox(height: 4),
-                                    Text(
-                                      'Pull down to refresh',
-                                      style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                                      child: Text(
+                                        'News reaches your feed when it matches your portfolio, watchlist or topics. '
+                                        'Add an asset, or use search to read about one.',
+                                        textAlign: TextAlign.center,
+                                        style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8), height: 1.4),
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -156,12 +194,19 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
                           ],
                         )
                       : ListView.builder(
+                          controller: _scroll,
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: const EdgeInsets.only(top: 4, bottom: 24),
-                          itemCount: state.articles.length,
+                          itemCount: state.articles.length + (state.isLoadingMore ? 1 : 0),
                           itemBuilder: (context, index) {
+                            if (index == state.articles.length) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                child: Center(child: CircularProgressIndicator()),
+                              );
+                            }
                             final article = state.articles[index];
-                            return _ArticleCard(article: article, onTap: () => _showDetail(article));
+                            return ArticleCard(article: article, onTap: () => _showDetail(article));
                           },
                         ),
             ),
@@ -176,15 +221,7 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
     if (!article.read) {
       ref.read(newsProvider.notifier).markRead(token, article.id);
     }
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _ArticleDetailSheet(article: article),
-    );
+    showArticleDetail(context, article);
   }
 }
 
@@ -216,421 +253,6 @@ class _CategoryPill extends StatelessWidget {
             fontWeight: FontWeight.w600,
             color: selected ? Colors.white : const Color(0xFF64748B),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ArticleCard extends StatelessWidget {
-  final FeedArticle article;
-  final VoidCallback onTap;
-
-  const _ArticleCard({required this.article, required this.onTap});
-
-  Color _sentimentColor() {
-    switch (article.sentimentLabel?.toLowerCase()) {
-      case 'positive': return const Color(0xFF10B981);
-      case 'negative': return const Color(0xFFEF4444);
-      default: return const Color(0xFF94A3B8);
-    }
-  }
-
-  String _timeAgo() {
-    if (article.publishedAt == null) return '';
-    final published = DateTime.tryParse(article.publishedAt!);
-    if (published == null) return '';
-    final diff = DateTime.now().difference(published);
-    if (diff.inDays > 0) return '${diff.inDays}d ago';
-    if (diff.inHours > 0) return '${diff.inHours}h ago';
-    return '${diff.inMinutes}m ago';
-  }
-
-  String _cleanSource(String source) {
-    var s = source.split('|').first.trim();
-    s = s.replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>');
-    return s;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Opacity(
-      opacity: article.read ? 0.72 : 1.0,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  if (article.sentimentLabel != null) ...[
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: _sentimentColor(),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      article.sentimentLabel!,
-                      style: GoogleFonts.inter(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: _sentimentColor(),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(width: 1, height: 10, color: const Color(0xFFE2E8F0)),
-                    const SizedBox(width: 8),
-                  ],
-                  if (article.source != null)
-                    Flexible(
-                      child: Text(
-                        article.sources.length > 1
-                            ? '${_cleanSource(article.source!)} +${article.sources.length - 1}'
-                            : _cleanSource(article.source!),
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
-                      ),
-                    ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _timeAgo(),
-                    style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8)),
-                  ),
-                  if (article.analyzedByName != null) ...[
-                    const SizedBox(width: 8),
-                    AiProviderBadge(
-                      name: article.analyzedByName,
-                      isFallback: article.isFallback,
-                    ),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                article.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.inter(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFF0F172A),
-                  height: 1.35,
-                ),
-              ),
-              if (article.summary != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  article.summary!,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    color: const Color(0xFF64748B),
-                    height: 1.45,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  if (article.severity != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: severityColor(article.severity).withAlpha(15),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: severityColor(article.severity).withAlpha(80)),
-                      ),
-                      child: Text(
-                        severityLabel(article.severity!),
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: severityColor(article.severity),
-                        ),
-                      ),
-                    ),
-                  const SizedBox(width: 6),
-                  ...article.relatedAssets.take(3).map(
-                    (sym) => Container(
-                      margin: const EdgeInsets.only(right: 4),
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        sym,
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF334155),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ArticleDetailSheet extends StatelessWidget {
-  final FeedArticle article;
-
-  const _ArticleDetailSheet({required this.article});
-
-  Color _sentimentColor() {
-    switch (article.sentimentLabel?.toLowerCase()) {
-      case 'positive': return const Color(0xFF10B981);
-      case 'negative': return const Color(0xFFEF4444);
-      default: return const Color(0xFF94A3B8);
-    }
-  }
-
-  Future<void> _openUrl(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      expand: false,
-      initialChildSize: 0.6,
-      maxChildSize: 0.95,
-      builder: (_, controller) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: ListView(
-          controller: controller,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE2E8F0),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(color: _sentimentColor(), shape: BoxShape.circle),
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  article.sentimentLabel ?? 'neutral',
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: _sentimentColor(),
-                  ),
-                ),
-                if (article.severity != null) ...[
-                  const SizedBox(width: 12),
-                  Container(width: 1, height: 12, color: const Color(0xFFE2E8F0)),
-                  const SizedBox(width: 12),
-                  Text(
-                    'Severity: ${severityLabel(article.severity!)}',
-                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 14),
-            Text(
-              article.title,
-              style: GoogleFonts.inter(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: const Color(0xFF0F172A),
-                height: 1.3,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              [
-                if (article.source != null)
-                  article.source!.split('|').first.trim().replaceAll('&amp;', '&'),
-                if (article.publishedAt != null) article.publishedAt!.substring(0, 10),
-              ].join(' · '),
-              style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
-            ),
-            if (article.analyzedByName != null) ...[
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Text(
-                    'Analyzed by',
-                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
-                  ),
-                  const SizedBox(width: 6),
-                  AiProviderBadge(
-                    name: article.analyzedByName,
-                    isFallback: article.isFallback,
-                    fontSize: 11,
-                  ),
-                ],
-              ),
-              if (article.isFallback) ...[
-                const SizedBox(height: 6),
-                Text(
-                  'Your chosen model had no analysis for this article, so another model\'s view is shown.',
-                  style: GoogleFonts.inter(
-                    fontSize: 11,
-                    color: const Color(0xFFB45309),
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ],
-            if (article.summary != null) ...[
-              const SizedBox(height: 18),
-              Text(
-                article.summary!,
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  color: const Color(0xFF334155),
-                  height: 1.6,
-                ),
-              ),
-            ],
-            if (article.assetImpacts.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              Text(
-                'ASSET IMPACTS',
-                style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFF94A3B8),
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 10),
-              ...article.assetImpacts.map((impact) {
-                final isPositive = impact.impact.toLowerCase() == 'positive';
-                final isNegative = impact.impact.toLowerCase() == 'negative';
-                final impactColor = isPositive
-                    ? const Color(0xFF10B981)
-                    : isNegative
-                        ? const Color(0xFFEF4444)
-                        : const Color(0xFF94A3B8);
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0F172A),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          impact.symbol,
-                          style: GoogleFonts.inter(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              impact.impact,
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: impactColor,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              impact.reason,
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                color: const Color(0xFF64748B),
-                                height: 1.4,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ],
-            if (article.sources.length > 1) ...[
-              const SizedBox(height: 24),
-              Text(
-                'REPORTED BY ${article.sources.length} OUTLETS',
-                style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFF94A3B8),
-                  letterSpacing: 0.8,
-                ),
-              ),
-              const SizedBox(height: 6),
-              ...article.sources.map(
-                (s) => ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: Text(
-                    s.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF0F172A)),
-                  ),
-                  subtitle: Text(
-                    s.source ?? '',
-                    style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
-                  ),
-                  trailing: const Icon(Icons.open_in_new_rounded, size: 16, color: Color(0xFF94A3B8)),
-                  onTap: () => _openUrl(s.url),
-                ),
-              ),
-            ],
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: () => _openUrl(article.url),
-              child: Text('Read Full Article', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-            ),
-          ],
         ),
       ),
     );

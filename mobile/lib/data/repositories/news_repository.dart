@@ -52,6 +52,50 @@ class NewsRepository {
     throw NewsException(body['detail'] as String? ?? 'Failed to load feed');
   }
 
+  Future<FeedResponse> getAssetNews(
+    String token,
+    String symbol, {
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    final uri = Uri.parse('${AppConstants.baseUrl}/feed/asset-news').replace(queryParameters: {
+      'symbol': symbol,
+      'limit': '$limit',
+      'offset': '$offset',
+    });
+
+    final response = await http
+        .get(uri, headers: _headers(token))
+        .timeout(_timeout);
+
+    final body = _decode(response);
+
+    if (response.statusCode == 200) {
+      return FeedResponse.fromJson(body);
+    }
+
+    throw NewsException(body['detail'] as String? ?? 'Failed to load news');
+  }
+
+  Future<List<ArticleAnalysis>> getAnalyses(String token, String articleId) async {
+    final response = await http
+        .get(
+          Uri.parse('${AppConstants.baseUrl}/feed/$articleId/analyses'),
+          headers: _headers(token),
+        )
+        .timeout(_timeout);
+
+    final body = _decode(response);
+
+    if (response.statusCode == 200) {
+      return (body['analyses'] as List<dynamic>)
+          .map((e) => ArticleAnalysis.fromJson(e as Map<String, dynamic>))
+          .toList();
+    }
+
+    throw NewsException(body['detail'] as String? ?? 'Failed to load analyses');
+  }
+
   Future<void> markRead(String token, String articleId) async {
     final response = await http
         .patch(

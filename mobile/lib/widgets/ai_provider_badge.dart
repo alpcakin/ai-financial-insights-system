@@ -45,12 +45,17 @@ class AiProviderBadge extends StatelessWidget {
             color: fg,
           ),
           const SizedBox(width: 3),
-          Text(
-            name!,
-            style: GoogleFonts.inter(
-              fontSize: fontSize,
-              fontWeight: FontWeight.w600,
-              color: fg,
+          // A user's own model can have a long name.
+          Flexible(
+            child: Text(
+              name!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w600,
+                color: fg,
+              ),
             ),
           ),
         ],

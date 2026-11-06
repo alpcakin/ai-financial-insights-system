@@ -286,3 +286,39 @@ def test_validate_defaults_missing_summary():
     assert data["summary"] == ""
     assert data["impacted_assets"] == []
     assert data["categories"] == []
+
+
+@pytest.mark.parametrize("summary", [None, 42, {"text": "x"}, ["x"]])
+def test_a_summary_that_is_not_text_becomes_empty(summary):
+    data = _validate_response({"level": "low", "summary": summary}, [], [])
+    assert data["summary"] == ""
+
+
+def test_a_missing_summary_becomes_empty():
+    assert _validate_response({"level": "low"}, [], [])["summary"] == ""
+
+
+def test_a_null_character_cannot_reach_the_database():
+    data = _validate_response(
+        {
+            "level": "high",
+            "summary": "a\x00b",
+            "impacted_assets": [{"symbol": "AAPL", "level": "high", "impact": "positive", "reason": "c\x00d"}],
+        },
+        ["AAPL"], [],
+    )
+    assert data["summary"] == "ab"
+    assert data["impacted_assets"][0]["reason"] == "cd"
+
+
+@pytest.mark.parametrize("reason", [None, 3, {"a": 1}])
+def test_a_reason_that_is_not_text_becomes_empty(reason):
+    asset = {"symbol": "AAPL", "level": "high", "impact": "positive", "reason": reason}
+    data = _validate_response({"level": "high", "impacted_assets": [asset]}, ["AAPL"], [])
+    assert data["impacted_assets"][0]["reason"] == ""
+
+
+def test_an_asset_without_a_reason_gets_an_empty_one():
+    asset = {"symbol": "AAPL", "level": "high", "impact": "positive"}
+    data = _validate_response({"level": "high", "impacted_assets": [asset]}, ["AAPL"], [])
+    assert data["impacted_assets"][0]["reason"] == ""

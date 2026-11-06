@@ -49,8 +49,9 @@ class _NewsSourcesScreenState extends ConsumerState<NewsSourcesScreen> {
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
         children: [
           Text(
-            'News comes from a fixed list of RSS feeds. When several outlets report the same event, '
-            'it is analyzed once and shown as one story with all of its sources.',
+            'The news package comes from a fixed list of RSS feeds. When several outlets report the same '
+            'event, it is analyzed once and shown as one story with all of its sources. You can add your '
+            'own feeds under Profile, News Mode.',
             style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF475569), height: 1.6),
           ),
           const SizedBox(height: 24),

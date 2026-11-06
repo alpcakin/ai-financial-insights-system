@@ -145,6 +145,11 @@ def _parse_json(raw: str) -> dict:
     return data
 
 
+def _text(value) -> str:
+    """Model text as the database and the app can hold it. Not every model follows the schema."""
+    return value.replace("\x00", "") if isinstance(value, str) else ""
+
+
 def _validate_response(data: dict, asset_pool: list[str], category_list: list[str]) -> dict:
     severity = SEVERITY_LEVELS.get(data.get("level"))
     if severity is None:
@@ -168,13 +173,21 @@ def _validate_response(data: dict, asset_pool: list[str], category_list: list[st
         if asset.get("impact") not in ("positive", "negative", "neutral"):
             asset["impact"] = "neutral"
         asset["severity"] = severity
+        asset["reason"] = _text(asset.get("reason"))
         valid_assets.append(asset)
     data["impacted_assets"] = valid_assets
 
     data["categories"] = [c for c in data.get("categories", []) if c in category_list]
-    data.setdefault("summary", "")
+    data["summary"] = _text(data.get("summary"))
 
     return data
+
+
+def _loggable(provider: AIProvider, error: Exception) -> str:
+    if not provider.private:
+        return str(error)
+    status = getattr(error, "status_code", None) or getattr(error, "code", None)
+    return f"{type(error).__name__} (status {status})" if status else type(error).__name__
 
 
 def analyze_article(
@@ -184,11 +197,13 @@ def analyze_article(
     category_list: list[str],
     provider: AIProvider | None = None,
     other_reports: list[dict] | None = None,
+    failures: dict[str, Exception] | None = None,
 ) -> dict | None:
     """Analyze one article with one provider.
 
     Returns the validated analysis plus ``provider``, ``model``,
     ``raw_response`` and ``latency_ms``, or None when the provider failed.
+    The last error is then put in ``failures`` under the provider's name.
     """
     if provider is None:
         provider = get_registry().default
@@ -198,6 +213,7 @@ def analyze_article(
 
     user_prompt = build_user_prompt(title, description, asset_pool, category_list, other_reports)
 
+    last_error: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         started = time.perf_counter()
         try:
@@ -210,19 +226,23 @@ def analyze_article(
             data["latency_ms"] = latency_ms
             return data
         except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
-            logger.warning("[%s] attempt %d returned malformed output: %s", provider.name, attempt, e)
+            last_error = e
+            logger.warning("[%s] attempt %d returned malformed output: %s", provider.name, attempt, _loggable(provider, e))
         except Exception as e:
+            last_error = e
             if attempt < MAX_ATTEMPTS and provider.is_transient(e):
                 delay = RETRY_BASE_DELAY * 2 ** (attempt - 1)
                 logger.warning(
                     "[%s] attempt %d hit a transient error, retrying in %ds: %s",
-                    provider.name, attempt, delay, e,
+                    provider.name, attempt, delay, _loggable(provider, e),
                 )
                 time.sleep(delay)
                 continue
-            logger.error("[%s] unexpected error on attempt %d: %s", provider.name, attempt, e)
+            logger.error("[%s] unexpected error on attempt %d: %s", provider.name, attempt, _loggable(provider, e))
             break
 
+    if failures is not None and last_error is not None:
+        failures[provider.name] = last_error
     return None
 
 
@@ -233,6 +253,7 @@ def analyze_article_all(
     category_list: list[str],
     providers: list[AIProvider] | None = None,
     other_reports: list[dict] | None = None,
+    failures: dict[str, Exception] | None = None,
 ) -> dict[str, dict]:
     """Analyze one article with every enabled provider in parallel.
 
@@ -249,7 +270,7 @@ def analyze_article_all(
     with ThreadPoolExecutor(max_workers=len(providers)) as executor:
         futures = {
             executor.submit(
-                analyze_article, title, description, asset_pool, category_list, p, other_reports
+                analyze_article, title, description, asset_pool, category_list, p, other_reports, failures
             ): p
             for p in providers
         }

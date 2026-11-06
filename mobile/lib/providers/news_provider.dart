@@ -11,6 +11,7 @@ class NewsState {
   final String? error;
   final String? selectedCategory;
   final bool hasMore;
+  final bool isLoadingMore;
 
   const NewsState({
     this.articles = const [],
@@ -18,6 +19,7 @@ class NewsState {
     this.error,
     this.selectedCategory,
     this.hasMore = true,
+    this.isLoadingMore = false,
   });
 
   NewsState copyWith({
@@ -26,6 +28,7 @@ class NewsState {
     String? error,
     String? selectedCategory,
     bool? hasMore,
+    bool? isLoadingMore,
     bool clearError = false,
   }) =>
       NewsState(
@@ -34,7 +37,15 @@ class NewsState {
         error: clearError ? null : error ?? this.error,
         selectedCategory: selectedCategory ?? this.selectedCategory,
         hasMore: hasMore ?? this.hasMore,
+        isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       );
+}
+
+/// New entries arriving between two page loads shift the offset, so the next
+/// page can repeat articles already on screen.
+List<FeedArticle> appendNewArticles(List<FeedArticle> current, List<FeedArticle> page) {
+  final seen = current.map((a) => a.id).toSet();
+  return [...current, ...page.where((a) => seen.add(a.id))];
 }
 
 class NewsNotifier extends StateNotifier<NewsState> {
@@ -61,6 +72,31 @@ class NewsNotifier extends StateNotifier<NewsState> {
       state = state.copyWith(isLoading: false, error: e.message);
     } catch (_) {
       state = state.copyWith(isLoading: false, error: 'Network error. Please try again.');
+    }
+  }
+
+  Future<void> loadMore(String token) async {
+    if (state.isLoading || state.isLoadingMore || !state.hasMore) return;
+    final category = state.selectedCategory;
+    state = state.copyWith(isLoadingMore: true);
+    try {
+      final response = await _repository.getFeed(
+        token,
+        limit: _pageSize,
+        offset: state.articles.length,
+        category: category,
+      );
+      if (state.selectedCategory != category) {
+        state = state.copyWith(isLoadingMore: false);
+        return;
+      }
+      state = state.copyWith(
+        articles: appendNewArticles(state.articles, response.articles),
+        isLoadingMore: false,
+        hasMore: response.articles.length >= _pageSize,
+      );
+    } catch (_) {
+      state = state.copyWith(isLoadingMore: false);
     }
   }
 

@@ -6,6 +6,7 @@ import requests
 
 from app.services import dedup_service
 from app.services.dedup_service import (
+    GroupingUnavailable,
     SAME_EVENT_CRITERIA,
     SAME_EVENT_QUESTION,
     SAME_EVENT_RULE,
@@ -230,7 +231,60 @@ def test_rpc_gets_threshold_and_publication_window_around_the_article():
         "min_similarity": 0.50,
         "published_from": "2026-10-19T08:00:00+00:00",
         "published_to": "2026-10-23T08:00:00+00:00",
+        "p_owner_id": None,
     }
+
+
+def test_candidates_are_looked_for_inside_the_owners_workspace():
+    db = _db()
+    with patch("app.services.dedup_service.embed_articles", return_value=[E_BASE]):
+        assign_stories(db, [_article("a")], owner_id="u1")
+    assert db.rpc.call_args.args[1]["p_owner_id"] == "u1"
+
+
+def test_required_judge_refuses_without_embeddings():
+    with patch("app.services.dedup_service.embed_articles", return_value=None):
+        with pytest.raises(GroupingUnavailable):
+            assign_stories(_db(), [_article("a")], owner_id="u1", require_judge=True)
+
+
+def test_required_judge_refuses_when_embedding_fails():
+    with patch("app.services.dedup_service.embed_articles", side_effect=RuntimeError("down")):
+        with pytest.raises(GroupingUnavailable):
+            assign_stories(_db(), [_article("a")], owner_id="u1", require_judge=True)
+
+
+def test_required_judge_refuses_without_a_snap_key():
+    with patch.object(dedup_service.settings, "subq_api_key", ""), patch("app.services.dedup_service.embed_articles") as embed:
+        with pytest.raises(GroupingUnavailable):
+            assign_stories(_db(), [_article("a")], owner_id="u1", require_judge=True)
+    embed.assert_not_called()
+
+
+def test_required_judge_refuses_when_every_snap_call_failed(snap_http):
+    snap_http.post.side_effect = RuntimeError("down")
+    a, b = _article("a"), _article("b")
+    with patch("app.services.dedup_service.embed_articles", return_value=[E_BASE, E_BASE]):
+        with pytest.raises(GroupingUnavailable):
+            assign_stories(_db(), [a, b], owner_id="u1", require_judge=True)
+
+
+def test_required_judge_accepts_one_failed_snap_call_as_not_the_same(snap_http):
+    ok = MagicMock()
+    ok.json.return_value = {"answers": {"same_event": {"noul": 0.1}}}
+    snap_http.post.side_effect = [RuntimeError("down"), ok, ok]
+    a, b, c = _article("a"), _article("b"), _article("c")
+    with patch("app.services.dedup_service.embed_articles", return_value=[E_BASE, E_BASE, E_BASE]):
+        stories, _ = assign_stories(_db(), [a, b, c], owner_id="u1", require_judge=True)
+    assert len(stories) == 3
+
+
+def test_package_mode_still_guesses_when_every_snap_call_failed(snap_http):
+    snap_http.post.side_effect = RuntimeError("down")
+    a, b = _article("a"), _article("b")
+    with patch("app.services.dedup_service.embed_articles", return_value=[E_BASE, E_BASE]):
+        stories, _ = assign_stories(_db(), [a, b])
+    assert len(stories) == 2
 
 
 def test_without_embeddings_every_article_is_its_own_story():

@@ -12,6 +12,7 @@ from app.services.news_service import (
     normalize_url,
     parse_feed,
 )
+from tests.fake_db import FakeDB
 from tests.conftest import chain_mock
 
 NOW = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
@@ -200,6 +201,17 @@ def test_filter_new_articles_drops_known_urls():
     db.table.return_value = chain_mock([{"url": "https://x.com/old"}])
     articles = [{"url": "https://x.com/old"}, {"url": "https://x.com/new"}]
     assert filter_new_articles(db, articles) == [{"url": "https://x.com/new"}]
+
+
+def test_seen_check_stays_inside_the_workspace():
+    db = FakeDB(articles=[
+        {"url": "https://x.com/shared", "owner_id": None},
+        {"url": "https://x.com/mine", "owner_id": "u1"},
+        {"url": "https://x.com/theirs", "owner_id": "u2"},
+    ])
+    articles = [{"url": f"https://x.com/{name}"} for name in ("shared", "mine", "theirs", "new")]
+    assert [a["url"].rsplit("/", 1)[1] for a in filter_new_articles(db, articles)] == ["mine", "theirs", "new"]
+    assert [a["url"].rsplit("/", 1)[1] for a in filter_new_articles(db, articles, owner_id="u1")] == ["shared", "theirs", "new"]
 
 
 def test_filter_new_articles_queries_in_chunks():

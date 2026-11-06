@@ -32,3 +32,6 @@ class RateLimiter:
 login_limiter = RateLimiter(max_attempts=10, window_seconds=15 * 60)
 # Registration and password reset both send an email to the given address.
 email_limiter = RateLimiter(max_attempts=5, window_seconds=60 * 60)
+# Both make outbound requests on demand; a model test also spends the user's credit.
+source_test_limiter = RateLimiter(max_attempts=20, window_seconds=60 * 60)
+model_test_limiter = RateLimiter(max_attempts=10, window_seconds=60 * 60)

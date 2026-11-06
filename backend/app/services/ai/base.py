@@ -25,6 +25,8 @@ class AIProvider(ABC):
     display_name: str
     #: Vendor model identifier actually called.
     model: str
+    #: A user's own model: its error text can echo the key, so it is never logged.
+    private: bool = False
 
     def __init__(self, name: str, display_name: str, model: str) -> None:
         self.name = name

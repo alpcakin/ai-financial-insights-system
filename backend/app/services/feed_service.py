@@ -1,8 +1,11 @@
 import logging
+
+from fastapi import HTTPException, status
 from supabase import Client
 
-from app.services.ai import display_name_for
+from app.services.ai import display_name_for, get_registry
 from app.services.ai_service import qualifies
+from app.services.asset_catalog import get_asset
 from app.services.tracked_assets import tracked_assets
 from app.services.user_service import effective_provider
 
@@ -19,7 +22,12 @@ ANALYSIS_FIELDS = (
 )
 
 
-def _match_users(db: Client, related_assets: list[str], related_categories: list[str]) -> set[str]:
+def _match_users(
+    db: Client,
+    related_assets: list[str],
+    related_categories: list[str],
+    only_user: str | None = None,
+) -> set[str]:
     """Users whose portfolio, watchlist or followed topics overlap one analysis."""
     if not related_assets and not related_categories:
         return set()
@@ -27,7 +35,8 @@ def _match_users(db: Client, related_assets: list[str], related_categories: list
     user_ids: set[str] = set()
 
     if related_assets:
-        user_ids.update(user_id for user_id, _ in tracked_assets(db, symbols=related_assets))
+        pairs = tracked_assets(db, user_ids=[only_user] if only_user else None, symbols=related_assets)
+        user_ids.update(user_id for user_id, _ in pairs)
 
     if related_categories:
         cat_result = db.table("categories").select("id, parent_id").in_("name", related_categories).execute()
@@ -38,21 +47,19 @@ def _match_users(db: Client, related_assets: list[str], related_categories: list
                 category_ids.append(row["parent_id"])
 
         if category_ids:
-            topic_result = (
-                db.table("followed_topics")
-                .select("user_id")
-                .in_("category_id", category_ids)
-                .execute()
-            )
-            for row in topic_result.data:
+            query = db.table("followed_topics").select("user_id").in_("category_id", category_ids)
+            if only_user:
+                query = query.eq("user_id", only_user)
+            for row in query.execute().data:
                 user_ids.add(row["user_id"])
 
     return user_ids
 
 
 def _fetch_user_providers(db: Client, user_ids: set[str]) -> dict[str, str | None]:
-    result = db.table("users").select("id, ai_provider").in_("id", list(user_ids)).execute()
-    return {row["id"]: row.get("ai_provider") for row in result.data}
+    """The chosen provider of each user who has package mode on."""
+    result = db.table("users").select("id, ai_provider, package_enabled").in_("id", list(user_ids)).execute()
+    return {row["id"]: row.get("ai_provider") for row in result.data if row.get("package_enabled", True)}
 
 
 def choose_analysis(
@@ -116,7 +123,9 @@ def distribute_article(
     assignments: dict[str, set[str]] = {}
     rows = []
     for user_id in all_users:
-        user_provider = user_providers.get(user_id)
+        if user_id not in user_providers:
+            continue
+        user_provider = user_providers[user_id]
         chosen = choose_analysis(
             user_provider,
             matched_by_provider,
@@ -146,6 +155,51 @@ def distribute_article(
     return assignments
 
 
+def distribute_owned_article(
+    db: Client,
+    article_id: str,
+    analyses: list[dict],
+    owner_id: str,
+    selected_model: str | None,
+) -> dict[str, set[str]]:
+    """Give a manual-mode story to its owner, and no one else, through their chosen
+    model. It follows the package's rule, but falls back only among their own models."""
+    by_provider = {a["provider"]: a for a in analyses if qualifies(a)}
+    matched_by_provider = {
+        provider: _match_users(
+            db, analysis.get("related_assets") or [], analysis.get("related_categories") or [], only_user=owner_id
+        )
+        for provider, analysis in by_provider.items()
+    }
+    analyzed_providers = {a["provider"] for a in analyses}
+    chosen = choose_analysis(selected_model, matched_by_provider, owner_id, None, analyzed_providers)
+    if chosen is None:
+        return {}
+
+    analysis_id = by_provider[chosen]["id"]
+    db.table("user_news_feed").upsert({
+        "user_id": owner_id,
+        "article_id": article_id,
+        "analysis_id": analysis_id,
+        "is_fallback": chosen != selected_model,
+    }, on_conflict="user_id,article_id").execute()
+    return {analysis_id: {owner_id}}
+
+
+def deliver_unanalyzed(db: Client, article_id: str, owner_id: str) -> None:
+    """Every model of the owner failed on this one story: it still shows up, marked."""
+    db.table("user_news_feed").upsert(
+        {"user_id": owner_id, "article_id": article_id}, on_conflict="user_id,article_id"
+    ).execute()
+
+
+def _scope_fields(owner_id: str | None, has_analysis: bool) -> dict:
+    return {
+        "mode": "manual" if owner_id else "package",
+        "analysis_failed": bool(owner_id) and not has_analysis,
+    }
+
+
 def _merge_feed_row(row: dict) -> dict:
     article = dict(row.get("articles") or {})
     analysis = row.get("article_analyses") or {}
@@ -153,16 +207,17 @@ def _merge_feed_row(row: dict) -> dict:
         article[field] = analysis.get(field)
     provider = analysis.get("provider")
     article["analyzed_by"] = provider
-    article["analyzed_by_name"] = display_name_for(provider) if provider else None
+    article["analyzed_by_name"] = (analysis.get("provider_label") or display_name_for(provider)) if provider else None
     article["is_fallback"] = row.get("is_fallback", False)
     article["read"] = row["read"]
+    article.update(_scope_fields(article.pop("owner_id", None), bool(analysis)))
     return article
 
 
 # Explicit article columns: articles also carry a 1536-dimension embedding.
 FEED_SELECT = (
     "read, is_fallback, created_at, "
-    "articles(id, title, url, source, published_at), article_analyses(*)"
+    "articles(id, title, url, source, published_at, owner_id), article_analyses(*)"
 )
 
 
@@ -233,6 +288,78 @@ def get_feed(
     articles = [_merge_feed_row(r) for r in page]
     _attach_sources(db, articles)
     return {"articles": articles, "total": total, "offset": offset, "limit": limit}
+
+
+def _provider_order(user: dict) -> list[str]:
+    """The user's model, then the default, then the rest: the order choose_analysis falls back in."""
+    registry = get_registry()
+    default = registry.default.name if registry.default else None
+    return list(dict.fromkeys(p for p in (effective_provider(user), default, *registry.names()) if p))
+
+
+def _model_order(db: Client, user: dict) -> list[str]:
+    """The user's chosen model, then their others: a manual story never falls back outside them."""
+    rows = db.table("user_models").select("id").eq("user_id", user["id"]).order("created_at").execute().data
+    selected = user.get("manual_model_id")
+    return list(dict.fromkeys([*([selected] if selected else []), *(row["id"] for row in rows)]))
+
+
+def get_asset_news(db: Client, user: dict, symbol: str, limit: int, offset: int) -> dict:
+    """Stored stories about one catalog asset, newest first, from the modes the user
+    has on, read on demand and never written to the feed. Low-importance stories are
+    included."""
+    asset = get_asset(symbol)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown asset symbol")
+
+    provider_order = _provider_order(user)
+    model_order = _model_order(db, user)
+    rows = db.rpc("asset_news", {
+        "p_user_id": user["id"],
+        "p_symbol": asset["symbol"],
+        "p_package": user.get("package_enabled", True),
+        "p_manual": user.get("manual_enabled", False),
+        "p_provider_order": provider_order,
+        "p_model_order": model_order,
+        "p_limit": limit,
+        "p_offset": offset,
+    }).execute().data or []
+
+    articles = []
+    for row in rows:
+        order = model_order if row["owner_id"] else provider_order
+        articles.append({
+            **{key: row[key] for key in ("id", "title", "url", "source", "published_at", "read", *ANALYSIS_FIELDS)},
+            "analyzed_by": row["provider"],
+            "analyzed_by_name": row["provider_label"] or display_name_for(row["provider"]),
+            "is_fallback": not order or row["provider"] != order[0],
+            **_scope_fields(row["owner_id"], True),
+        })
+    _attach_sources(db, articles)
+    return {"articles": articles, "total": rows[0]["total"] if rows else 0, "offset": offset, "limit": limit}
+
+
+def get_article_analyses(db: Client, user: dict, article_id: str) -> dict:
+    """Every stored analysis of one story, the user's model first, so models can be
+    compared on the same article. A story in someone else's workspace does not exist."""
+    articles = db.table("articles").select("owner_id").eq("id", article_id).execute().data
+    if not articles or articles[0]["owner_id"] not in (None, user["id"]):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Article not found")
+
+    rows = (
+        db.table("article_analyses")
+        .select("provider, provider_label, " + ", ".join(ANALYSIS_FIELDS))
+        .eq("article_id", article_id)
+        .execute()
+    ).data
+    order = _model_order(db, user) if articles[0]["owner_id"] else _provider_order(user)
+    rows.sort(key=lambda r: (order.index(r["provider"]) if r["provider"] in order else len(order), r["provider"]))
+    return {
+        "analyses": [
+            {**row, "provider_name": row.get("provider_label") or display_name_for(row["provider"])}
+            for row in rows
+        ]
+    }
 
 
 def mark_read(db: Client, user_id: str, article_id: str) -> None:

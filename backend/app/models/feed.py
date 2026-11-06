@@ -33,6 +33,8 @@ class FeedArticle(BaseModel):
     is_fallback: bool = False
     read: bool
     sources: list[ArticleSource] = []
+    mode: str = "package"
+    analysis_failed: bool = False
 
 
 class FeedResponse(BaseModel):
@@ -40,6 +42,21 @@ class FeedResponse(BaseModel):
     total: int
     offset: int
     limit: int
+
+
+class ArticleAnalysis(BaseModel):
+    provider: str
+    provider_name: str
+    summary: str | None
+    sentiment_label: str | None
+    severity: int | None
+    related_categories: list[str] | None
+    related_assets: list[str] | None
+    asset_impacts: list[Any] | None
+
+
+class ArticleAnalysesResponse(BaseModel):
+    analyses: list[ArticleAnalysis]
 
 
 class NewsSource(BaseModel):

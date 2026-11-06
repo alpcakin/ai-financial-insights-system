@@ -8,6 +8,7 @@ yfinance>=1.2.0
 requests==2.32.3
 defusedxml==0.7.1
 python-jose[cryptography]==3.3.0
+cryptography>=44
 bcrypt==4.2.0
 apscheduler==3.10.4
 python-dotenv==1.0.1

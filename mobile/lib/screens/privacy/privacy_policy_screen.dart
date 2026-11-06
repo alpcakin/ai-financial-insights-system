@@ -29,7 +29,11 @@ class PrivacyPolicyScreen extends StatelessWidget {
             ),
             _section(
               'How We Use Your Data',
-              'Your portfolio and watchlist are used to match relevant financial news and generate alerts when these assets experience significant market events. We do not sell your data to third parties.\n\nNews articles are analyzed by third-party AI services (OpenAI, Google Gemini, xAI Grok and Anthropic Claude); the model you select decides whose analysis you see. Only the article text and the combined list of asset symbols held or watched across all users are sent to these services. Your email address, holdings, quantities and prices are never shared with them.',
+              'Your portfolio and watchlist are used to match relevant financial news and generate alerts when these assets experience significant market events. We do not sell your data to third parties.\n\nNews articles are analyzed by third-party AI services (OpenAI, Google Gemini and Anthropic Claude); the model you select decides whose analysis you see. Only the article text and our fixed list of asset symbols are sent to these services. To find reports of the same event, article text also goes to OpenAI and SubQ. Your email address, holdings, quantities and prices are never shared with them.',
+            ),
+            _section(
+              'Your Own Sources and Keys',
+              'If you use your own sources, we store their addresses, the articles fetched from them and your API keys. Keys are stored encrypted, are used only to analyze your own articles with the model you added, are never shown again (only their last 4 characters) and never written to logs. They are deleted when you delete the model or your account. Your articles and their analyses are visible only to you.\n\nThe text of your articles goes to the vendor of each model you add, on your account and under that vendor\'s terms. If you turn on same-event grouping, it also goes to OpenAI and SubQ.',
             ),
             _section(
               'Data Storage',
@@ -53,7 +57,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Last updated: October 2026',
+              'Last updated: November 2026',
               style: GoogleFonts.inter(
                 fontSize: 12,
                 color: const Color(0xFF94A3B8),

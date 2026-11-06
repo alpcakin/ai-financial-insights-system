@@ -171,7 +171,17 @@ def test_openai_compatible_builds_client_with_base_url():
     with patch("app.services.ai.openai_compatible.OpenAI") as mock_openai:
         provider._get_client()
         provider._get_client()
-    mock_openai.assert_called_once_with(api_key="k", base_url="https://example.com/v1", timeout=60)
+    mock_openai.assert_called_once_with(api_key="k", base_url="https://example.com/v1", timeout=60, http_client=None)
+
+
+def test_openai_compatible_sends_no_sampling_setting_when_both_are_none():
+    provider = OpenAICompatibleProvider("u", "U", "m", api_key="k", temperature=None)
+    client = MagicMock()
+    client.chat.completions.create.return_value.choices = [MagicMock(message=MagicMock(content="{}"))]
+    provider._client = client
+    provider.complete("s", "u")
+    kwargs = client.chat.completions.create.call_args.kwargs
+    assert "temperature" not in kwargs and "reasoning_effort" not in kwargs
 
 
 def test_openai_compatible_handles_empty_content():

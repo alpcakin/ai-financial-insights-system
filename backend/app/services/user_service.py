@@ -97,6 +97,9 @@ def export_user_data(db: Client, user: dict) -> dict:
     topics = db.table("followed_topics").select("category_id, source, created_at").eq("user_id", user["id"]).execute()
     reports = db.table("reports").select("report_type, period_start, period_end, generated_at").eq("user_id", user["id"]).execute()
     alert_settings = db.table("asset_alert_settings").select("asset_symbol, mode, threshold_pct, updated_at").eq("user_id", user["id"]).execute()
+    sources = db.table("user_sources").select("url, name, fetch_interval_minutes, enabled, created_at").eq("user_id", user["id"]).execute()
+    # Never the keys, not even encrypted.
+    models = db.table("user_models").select("kind, model, label, base_url, key_last4, created_at").eq("user_id", user["id"]).execute()
 
     return {
         "profile": {
@@ -111,4 +114,11 @@ def export_user_data(db: Client, user: dict) -> dict:
         "followed_topics": topics.data,
         "reports": reports.data,
         "alert_settings": alert_settings.data,
+        "manual_mode": {
+            "package_enabled": user.get("package_enabled", True),
+            "manual_enabled": user.get("manual_enabled", False),
+            "grouping_enabled": user.get("manual_grouping", False),
+            "sources": sources.data,
+            "models": models.data,
+        },
     }

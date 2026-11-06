@@ -11,6 +11,7 @@ class AlertCard extends StatelessWidget {
   const AlertCard({super.key, required this.alert});
 
   bool get _isImpact => alert.alertType == 'impact';
+  bool get _isModelStopped => alert.alertType == 'model_stopped';
 
   String _timeAgo() {
     final dt = DateTime.tryParse(alert.createdAt);
@@ -45,7 +46,11 @@ class AlertCard extends StatelessWidget {
               border: Border.all(color: color.withAlpha(60)),
             ),
             child: Icon(
-              _isImpact ? Icons.article_rounded : Icons.trending_up_rounded,
+              _isModelStopped
+                  ? Icons.warning_amber_rounded
+                  : _isImpact
+                      ? Icons.article_rounded
+                      : Icons.trending_up_rounded,
               color: color,
               size: 20,
             ),
@@ -93,7 +98,7 @@ class AlertCard extends StatelessWidget {
                       ),
                     if (alert.aiProviderName != null) ...[
                       const SizedBox(width: 6),
-                      AiProviderBadge(name: alert.aiProviderName),
+                      Flexible(flex: 3, child: AiProviderBadge(name: alert.aiProviderName)),
                     ],
                     const Spacer(),
                     Text(
@@ -109,7 +114,7 @@ class AlertCard extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     alert.message!,
-                    maxLines: 2,
+                    maxLines: _isModelStopped ? 4 : 2,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.inter(
                       fontSize: 13,

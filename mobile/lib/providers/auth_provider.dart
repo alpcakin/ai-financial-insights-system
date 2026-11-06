@@ -20,6 +20,7 @@ import '../core/constants.dart';
 import '../data/models/auth_models.dart';
 import '../data/repositories/auth_repository.dart';
 import 'alert_provider.dart';
+import 'manual_provider.dart';
 import 'news_provider.dart';
 import 'portfolio_provider.dart';
 import 'report_provider.dart';
@@ -84,6 +85,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     _ref.invalidate(watchlistProvider);
     _ref.invalidate(newsProvider);
     _ref.invalidate(alertProvider);
+    _ref.invalidate(manualProvider);
     _ref.invalidate(reportProvider);
     _ref.invalidate(topicProvider);
     _ref.invalidate(userProvider);

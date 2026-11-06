@@ -15,7 +15,7 @@ class AssetImpact {
         symbol: json['symbol'] as String,
         impact: json['impact'] as String,
         severity: json['severity'] as int,
-        reason: json['reason'] as String,
+        reason: json['reason'] as String? ?? '',
       );
 }
 
@@ -80,6 +80,12 @@ class FeedArticle {
   /// Every outlet that reported this story; one entry when only one did.
   final List<ArticleSource> sources;
 
+  /// "package" for the shared news, "manual" for the user's own sources.
+  final String mode;
+
+  /// Every model of the user failed on this story, so it has no analysis.
+  final bool analysisFailed;
+
   const FeedArticle({
     required this.id,
     required this.title,
@@ -97,7 +103,11 @@ class FeedArticle {
     this.isFallback = false,
     required this.read,
     this.sources = const [],
+    this.mode = 'package',
+    this.analysisFailed = false,
   });
+
+  bool get isManual => mode == 'manual';
 
   FeedArticle copyWith({bool? read}) => FeedArticle(
         id: id,
@@ -116,6 +126,8 @@ class FeedArticle {
         isFallback: isFallback,
         read: read ?? this.read,
         sources: sources,
+        mode: mode,
+        analysisFailed: analysisFailed,
       );
 
   factory FeedArticle.fromJson(Map<String, dynamic> json) {
@@ -150,6 +162,8 @@ class FeedArticle {
       sources: (json['sources'] as List<dynamic>? ?? [])
           .map((e) => ArticleSource.fromJson(e as Map<String, dynamic>))
           .toList(),
+      mode: json['mode'] as String? ?? 'package',
+      analysisFailed: json['analysis_failed'] as bool? ?? false,
     );
   }
 }
@@ -174,5 +188,35 @@ class FeedResponse {
         total: json['total'] as int,
         offset: json['offset'] as int,
         limit: json['limit'] as int,
+      );
+}
+
+/// One model's analysis of a story, for comparing models on the same article.
+class ArticleAnalysis {
+  final String provider;
+  final String providerName;
+  final String? summary;
+  final String? sentimentLabel;
+  final int? severity;
+  final List<AssetImpact> assetImpacts;
+
+  const ArticleAnalysis({
+    required this.provider,
+    required this.providerName,
+    this.summary,
+    this.sentimentLabel,
+    this.severity,
+    this.assetImpacts = const [],
+  });
+
+  factory ArticleAnalysis.fromJson(Map<String, dynamic> json) => ArticleAnalysis(
+        provider: json['provider'] as String,
+        providerName: json['provider_name'] as String,
+        summary: json['summary'] as String?,
+        sentimentLabel: json['sentiment_label'] as String?,
+        severity: json['severity'] as int?,
+        assetImpacts: (json['asset_impacts'] as List<dynamic>? ?? [])
+            .map((e) => AssetImpact.fromJson(e as Map<String, dynamic>))
+            .toList(),
       );
 }

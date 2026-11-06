@@ -1,15 +1,23 @@
 from unittest.mock import MagicMock
 
+import pytest
+from fastapi import HTTPException
+
 from app.services.feed_service import (
     FEED_SELECT,
     _attach_sources,
     _match_users,
+    _merge_feed_row,
     choose_analysis,
     distribute_article,
+    distribute_owned_article,
+    get_article_analyses,
+    get_asset_news,
     get_feed,
     mark_read,
 )
 from tests.conftest import chain_mock, make_db
+from tests.fake_db import FakeDB
 
 
 def _analysis(provider, aid=None, assets=("AAPL",), categories=(), severity=3):
@@ -300,3 +308,231 @@ def test_attach_sources_skips_query_for_empty_page():
     _attach_sources(db, [])
     db.table.assert_not_called()
 
+
+
+# ── get_asset_news / get_article_analyses ────────────────────────────────────
+
+def _news_row(article_id, provider, **overrides):
+    return {
+        "id": article_id, "title": "T", "url": f"https://x/{article_id}", "source": "CNBC",
+        "published_at": "2026-11-05T10:00:00+00:00", "provider": provider, "summary": "S",
+        "sentiment_label": "neutral", "severity": 1, "related_categories": [], "related_assets": ["XOM"],
+        "asset_impacts": [], "read": False, "total": 2, "owner_id": None, "provider_label": None, **overrides,
+    }
+
+
+def _news_db(rows):
+    db = MagicMock()
+    db.rpc.return_value.execute.return_value.data = rows
+    db.table.side_effect = lambda name: chain_mock([])
+    return db
+
+
+def test_asset_news_asks_in_the_fallback_order_of_the_feed(registry):
+    db = _news_db([])
+    get_asset_news(db, {"id": "u1", "ai_provider": "gemini"}, "xom", 20, 40)
+    db.rpc.assert_called_once_with("asset_news", {
+        "p_user_id": "u1",
+        "p_symbol": "XOM",
+        "p_package": True,
+        "p_manual": False,
+        "p_provider_order": ["gemini", "openai", "claude"],
+        "p_model_order": [],
+        "p_limit": 20,
+        "p_offset": 40,
+    })
+
+
+def test_asset_news_follows_the_users_modes_and_their_own_model_order(registry):
+    db = FakeDB(user_models=[
+        {"id": "m1", "user_id": "u1", "created_at": "1"},
+        {"id": "m2", "user_id": "u1", "created_at": "2"},
+        {"id": "other", "user_id": "u2", "created_at": "3"},
+    ])
+    user = {"id": "u1", "ai_provider": "openai", "package_enabled": False, "manual_enabled": True, "manual_model_id": "m2"}
+    get_asset_news(db, user, "XOM", 20, 0)
+    params = db.rpc_calls[0][1]
+    assert params["p_package"] is False and params["p_manual"] is True
+    assert params["p_model_order"] == ["m2", "m1"]
+
+
+def test_asset_news_marks_the_users_own_stories(registry):
+    db = FakeDB(user_models=[{"id": "m1", "user_id": "u1", "created_at": "1"}, {"id": "m2", "user_id": "u1", "created_at": "2"}])
+    db.rpc_data = [
+        _news_row("own", "m1", owner_id="u1", provider_label="My model"),
+        _news_row("fallback", "m2", owner_id="u1", provider_label="Second"),
+        _news_row("shared", "openai"),
+    ]
+    user = {"id": "u1", "ai_provider": "openai", "manual_enabled": True, "manual_model_id": "m1"}
+    own, fallback, shared = get_asset_news(db, user, "XOM", 20, 0)["articles"]
+    assert own["mode"] == "manual" and own["analyzed_by_name"] == "My model" and own["is_fallback"] is False
+    assert fallback["is_fallback"] is True
+    assert shared["mode"] == "package" and shared["is_fallback"] is False
+
+
+def test_asset_news_flags_another_models_analysis_as_fallback(registry):
+    db = _news_db([_news_row("a1", "gemini"), _news_row("a2", "openai")])
+    result = get_asset_news(db, {"id": "u1", "ai_provider": "gemini"}, "XOM", 20, 0)
+    assert [a["is_fallback"] for a in result["articles"]] == [False, True]
+    assert result["articles"][1]["analyzed_by"] == "openai"
+    assert result["total"] == 2
+
+
+def test_asset_news_lists_the_outlets_of_each_story(registry):
+    db = MagicMock()
+    db.rpc.return_value.execute.return_value.data = [_news_row("a1", "openai")]
+    db.table.side_effect = lambda name: chain_mock([
+        {"duplicate_of": "a1", "title": "Other", "url": "https://y", "source": "WSJ", "published_at": None},
+    ] if name == "articles" else [])
+    article = get_asset_news(db, {"id": "u1", "ai_provider": "openai"}, "XOM", 20, 0)["articles"][0]
+    assert [s["source"] for s in article["sources"]] == ["CNBC", "WSJ"]
+
+
+def test_asset_news_unknown_symbol_is_404_and_runs_no_query(registry):
+    db = _news_db([])
+    with pytest.raises(HTTPException) as err:
+        get_asset_news(db, {"id": "u1", "ai_provider": "openai"}, "NOPE", 20, 0)
+    assert err.value.status_code == 404
+    db.rpc.assert_not_called()
+
+
+def test_asset_news_empty_page_has_zero_total(registry):
+    result = get_asset_news(_news_db([]), {"id": "u1", "ai_provider": "openai"}, "XOM", 20, 0)
+    assert result["articles"] == [] and result["total"] == 0
+
+
+def _analysis_row(article_id, provider, **extra):
+    return {"id": f"{article_id}-{provider}", "article_id": article_id, "provider": provider, "summary": "s", **extra}
+
+
+def test_article_analyses_put_the_users_model_first(registry):
+    db = FakeDB(
+        articles=[{"id": "a1", "owner_id": None}],
+        article_analyses=[_analysis_row("a1", p) for p in ("openai", "grok", "claude", "gemini")],
+    )
+    analyses = get_article_analyses(db, {"id": "u1", "ai_provider": "claude"}, "a1")["analyses"]
+    assert [a["provider"] for a in analyses] == ["claude", "openai", "gemini", "grok"]
+    assert analyses[3]["provider_name"] == "Grok"
+
+
+def test_article_analyses_never_select_raw_responses(registry):
+    db = FakeDB(
+        articles=[{"id": "a1", "owner_id": None}],
+        article_analyses=[_analysis_row("a1", "openai", raw_response="secret", latency_ms=5)],
+    )
+    analysis = get_article_analyses(db, {"id": "u1", "ai_provider": "openai"}, "a1")["analyses"][0]
+    assert "raw_response" not in analysis and "latency_ms" not in analysis
+
+
+def test_article_analyses_of_someone_elses_story_do_not_exist(registry):
+    db = FakeDB(
+        articles=[{"id": "a1", "owner_id": "u2"}],
+        article_analyses=[_analysis_row("a1", "m1", provider_label="Theirs")],
+    )
+    with pytest.raises(HTTPException) as err:
+        get_article_analyses(db, {"id": "u1", "ai_provider": "openai"}, "a1")
+    assert err.value.status_code == 404
+
+
+def test_article_analyses_of_a_missing_story_do_not_exist(registry):
+    with pytest.raises(HTTPException) as err:
+        get_article_analyses(FakeDB(), {"id": "u1", "ai_provider": "openai"}, "a1")
+    assert err.value.status_code == 404
+
+
+def test_article_analyses_of_the_users_own_story_use_its_model_names(registry):
+    db = FakeDB(
+        articles=[{"id": "a1", "owner_id": "u1"}],
+        user_models=[{"id": "m1", "user_id": "u1", "created_at": "1"}, {"id": "m2", "user_id": "u1", "created_at": "2"}],
+        article_analyses=[
+            _analysis_row("a1", "m1", provider_label="First"),
+            _analysis_row("a1", "m2", provider_label="Second"),
+        ],
+    )
+    analyses = get_article_analyses(db, {"id": "u1", "manual_model_id": "m2"}, "a1")["analyses"]
+    assert [a["provider_name"] for a in analyses] == ["Second", "First"]
+
+
+# ── Modes on the feed ────────────────────────────────────────────────────────
+
+def test_package_news_skips_users_who_turned_package_mode_off():
+    db = _db(
+        portfolio=[{"user_id": "on"}, {"user_id": "off"}],
+        users=[
+            {"id": "on", "ai_provider": "openai", "package_enabled": True},
+            {"id": "off", "ai_provider": "openai", "package_enabled": False},
+        ],
+    )
+    assignments = distribute_article(db, "a1", [_analysis("openai")], "openai")
+    assert assignments == {"an-openai": {"on"}}
+    assert [row["user_id"] for row in db.upserts] == ["on"]
+
+
+def _owned_db():
+    return FakeDB(
+        portfolio=[{"user_id": "u1", "asset_symbol": "AAPL"}, {"user_id": "u2", "asset_symbol": "AAPL"}],
+        watchlist=[],
+        followed_topics=[{"user_id": "u2", "category_id": "c1"}],
+        categories=[{"id": "c1", "name": "Tech", "parent_id": None}],
+    )
+
+
+def test_own_story_reaches_only_its_owner_even_when_others_track_the_asset():
+    db = _owned_db()
+    assignments = distribute_owned_article(db, "a1", [_analysis("m1", categories=("Tech",))], "u1", "m1")
+    assert assignments == {"an-m1": {"u1"}}
+    assert [r["user_id"] for r in db.rows("user_news_feed")] == ["u1"]
+
+
+def test_own_story_is_not_delivered_for_someone_elses_topic():
+    db = _owned_db()
+    assert distribute_owned_article(db, "a1", [_analysis("m1", assets=(), categories=("Tech",))], "u1", "m1") == {}
+    assert db.rows("user_news_feed") == []
+
+
+def test_own_story_uses_the_chosen_model_and_does_not_flag_it():
+    db = _owned_db()
+    distribute_owned_article(db, "a1", [_analysis("m1"), _analysis("m2")], "u1", "m2")
+    row = db.rows("user_news_feed")[0]
+    assert row["analysis_id"] == "an-m2" and row["is_fallback"] is False
+
+
+def test_own_story_is_not_shown_when_the_chosen_model_says_it_does_not_match():
+    db = _owned_db()
+    assert distribute_owned_article(db, "a1", [_analysis("m1", assets=("MSFT",)), _analysis("m2")], "u1", "m1") == {}
+
+
+def test_own_story_falls_back_to_another_own_model_and_flags_it():
+    db = _owned_db()
+    distribute_owned_article(db, "a1", [_analysis("m2")], "u1", "m1")
+    row = db.rows("user_news_feed")[0]
+    assert row["analysis_id"] == "an-m2" and row["is_fallback"] is True
+
+
+def test_low_importance_own_story_is_not_delivered():
+    db = _owned_db()
+    assert distribute_owned_article(db, "a1", [_analysis("m1", severity=1)], "u1", "m1") == {}
+
+
+def test_feed_row_shows_mode_and_the_models_name():
+    article = _merge_feed_row({
+        "read": False,
+        "articles": {**ARTICLE, "owner_id": "u1"},
+        "article_analyses": {**ANALYSIS, "provider": "m1", "provider_label": "My model"},
+    })
+    assert article["mode"] == "manual" and article["analyzed_by_name"] == "My model"
+    assert article["analysis_failed"] is False
+
+
+def test_feed_row_of_an_unanalyzed_own_story_is_marked():
+    article = _merge_feed_row({"read": False, "articles": {**ARTICLE, "owner_id": "u1"}, "article_analyses": None})
+    assert article["analysis_failed"] is True and article["analyzed_by"] is None
+
+
+def test_feed_row_of_the_package_stays_as_it_was():
+    article = _merge_feed_row({"read": False, "articles": {**ARTICLE, "owner_id": None}, "article_analyses": None})
+    assert article["mode"] == "package" and article["analysis_failed"] is False
+
+
+def test_feed_never_selects_embeddings():
+    assert "embedding" not in FEED_SELECT and "owner_id" in FEED_SELECT

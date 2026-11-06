@@ -17,6 +17,11 @@ from app.core.security import decode_access_token
 
 bearer = HTTPBearer()
 
+USER_COLUMNS = (
+    "id, email, notification_preferences, ai_provider, created_at, "
+    "package_enabled, manual_enabled, manual_grouping, manual_model_id"
+)
+
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer),
@@ -32,7 +37,7 @@ def get_current_user(
             detail="Invalid or expired token",
         )
 
-    result = db.table("users").select("id, email, notification_preferences, ai_provider, created_at").eq("id", user_id).execute()
+    result = db.table("users").select(USER_COLUMNS).eq("id", user_id).execute()
     if not result.data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

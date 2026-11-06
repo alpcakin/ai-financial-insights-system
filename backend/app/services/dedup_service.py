@@ -6,9 +6,10 @@ article is compared only with leads, never with other members, so a story
 cannot drift from one event to another through a chain of similar articles.
 Embedding similarity only picks the candidates; SubQ Snap decides every match,
 because recurring reports (daily roundups, price updates) are nearly identical
-text from one day to the next. The judge is part of the pipeline in every mode:
-user API keys never reach it. This is the system frozen on 2026-11-01; changing
-any of it invalidates the measurements (DEVELOPMENT_JOURNAL.md 2.57, 2.60).
+text from one day to the next. User API keys never reach this module: in manual
+mode the user can only turn grouping on, and the same system then runs inside
+their own articles. This is the system frozen on 2026-11-01; changing any of it
+invalidates the measurements (DEVELOPMENT_JOURNAL.md 2.57, 2.60).
 """
 
 import logging
@@ -65,6 +66,17 @@ SAME_EVENT_CRITERIA = {
 }
 
 
+class GroupingUnavailable(Exception):
+    """Grouping could not run at all. In manual mode the analysis waits instead,
+    because every duplicate would otherwise be analyzed with the user's own key."""
+
+
+@dataclass
+class SnapTally:
+    asked: int = 0
+    failed: int = 0
+
+
 @dataclass
 class Story:
     """A new event: its lead plus the articles about it that arrived in the same cycle."""
@@ -100,13 +112,18 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def _stored_candidates(
-    db: Client, embedding: list[float], published_from: datetime, published_to: datetime,
+    db: Client,
+    embedding: list[float],
+    published_from: datetime,
+    published_to: datetime,
+    owner_id: str | None,
 ) -> list[dict]:
     result = db.rpc("match_story_leads", {
         "query_embedding": embedding,
         "min_similarity": settings.dedup_candidate_threshold,
         "published_from": published_from.isoformat(),
         "published_to": published_to.isoformat(),
+        "p_owner_id": owner_id,
     }).execute()
     return [
         {
@@ -151,7 +168,7 @@ def build_snap_request(article: dict, candidate: dict) -> dict:
     }
 
 
-def _same_event_probability(article: dict, candidate: dict) -> float:
+def _same_event_probability(article: dict, candidate: dict) -> float | None:
     try:
         response = requests.post(
             SNAP_URL,
@@ -165,11 +182,11 @@ def _same_event_probability(article: dict, candidate: dict) -> float:
             raise ValueError(f"probability out of range: {probability}")
     except Exception as e:
         logger.warning("Same-event judge failed for %s: %s", article["url"], e)
-        return 0.0
+        return None
     return probability
 
 
-def judge_same_event(article: dict, candidates: list[dict]) -> int | None:
+def judge_same_event(article: dict, candidates: list[dict], tally: SnapTally | None = None) -> int | None:
     """Index of the candidate most likely to report the same event, or None.
 
     Each candidate is a separate request, the form that was measured. A failed
@@ -179,27 +196,45 @@ def judge_same_event(article: dict, candidates: list[dict]) -> int | None:
     if not settings.subq_api_key:
         logger.warning("SUBQ_API_KEY is not set, %s becomes a new story", article["url"])
         return None
-    probabilities = [_same_event_probability(article, c) for c in candidates]
+    answers = [_same_event_probability(article, c) for c in candidates]
+    if tally is not None:
+        tally.asked += len(answers)
+        tally.failed += answers.count(None)
+    probabilities = [0.0 if p is None else p for p in answers]
     # max keeps the first of equal values, and candidates come closest first.
     best = max(range(len(candidates)), key=probabilities.__getitem__)
     logger.info("Snap asked about %d candidates, best p %.3f: %s", len(candidates), probabilities[best], article["title"])
     return best if probabilities[best] >= settings.dedup_match_probability else None
 
 
-def assign_stories(db: Client, articles: list[dict]) -> tuple[list[Story], list[Attachment]]:
+def assign_stories(
+    db: Client,
+    articles: list[dict],
+    owner_id: str | None = None,
+    require_judge: bool = False,
+) -> tuple[list[Story], list[Attachment]]:
     """Split new articles, oldest first, into new stories and attachments to stored ones.
 
-    Sets ``embedding`` on every article and ``duplicate_similarity`` on
-    articles that joined a story from the same cycle.
+    Compares only inside one workspace: the shared one, or ``owner_id``'s. Sets
+    ``embedding`` on every article and ``duplicate_similarity`` on articles that
+    joined a story from the same cycle.
+
+    With ``require_judge``, raises GroupingUnavailable when there are no embeddings
+    or when every Snap request failed. A single failed request still counts as
+    "not the same", as in the frozen system.
     """
     if not articles:
         return [], []
+    if require_judge and not settings.subq_api_key:
+        raise GroupingUnavailable
     try:
         embeddings = embed_articles(articles)
     except Exception as e:
         logger.error("Embedding failed, every article becomes its own story: %s", e)
         embeddings = None
     if embeddings is None:
+        if require_judge:
+            raise GroupingUnavailable
         for article in articles:
             article["embedding"] = None
         return [Story(lead=a) for a in articles], []
@@ -207,11 +242,12 @@ def assign_stories(db: Client, articles: list[dict]) -> tuple[list[Story], list[
     window = timedelta(hours=settings.dedup_window_hours)
     stories: list[Story] = []
     attachments: list[Attachment] = []
+    tally = SnapTally()
 
     for article, embedding in zip(articles, embeddings):
         article["embedding"] = embedding
         published = _published(article)
-        candidates = _stored_candidates(db, embedding, published - window, published + window) + [
+        candidates = _stored_candidates(db, embedding, published - window, published + window, owner_id) + [
             {
                 "story": story,
                 "source": story.lead["source"],
@@ -231,7 +267,7 @@ def assign_stories(db: Client, articles: list[dict]) -> tuple[list[Story], list[
 
         match = None
         if candidates:
-            index = judge_same_event(article, candidates)
+            index = judge_same_event(article, candidates, tally)
             if index is not None:
                 match = candidates[index]
 
@@ -248,4 +284,6 @@ def assign_stories(db: Client, articles: list[dict]) -> tuple[list[Story], list[
                 "Same event (%.2f): %s -> %s", match["similarity"], article["title"], match["title"],
             )
 
+    if require_judge and tally.asked and tally.failed == tally.asked:
+        raise GroupingUnavailable
     return stories, attachments

@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
-from app.core.rate_limit import email_limiter, login_limiter
+from app.core.rate_limit import email_limiter, login_limiter, model_test_limiter, source_test_limiter
 from app.main import app
 from app.dependencies import get_current_user, get_db
 from app.services.ai import AIProvider, ProviderRegistry, set_registry
@@ -16,7 +16,7 @@ def chain_mock(data, count=None):
     m.execute.return_value = result
     for method in [
         "select", "eq", "in_", "order", "range", "upsert",
-        "insert", "update", "delete", "not_", "gte", "lte", "neq",
+        "insert", "update", "delete", "not_", "gte", "lte", "neq", "is_",
     ]:
         getattr(m, method).return_value = m
     return m
@@ -93,8 +93,8 @@ def snap_http():
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limits():
-    login_limiter.reset()
-    email_limiter.reset()
+    for limiter in (login_limiter, email_limiter, source_test_limiter, model_test_limiter):
+        limiter.reset()
 
 
 @pytest.fixture

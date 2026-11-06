@@ -10,7 +10,8 @@ class ClaudeProvider(AIProvider):
 
     Current Claude models reject non-default sampling parameters, so unlike
     the other providers no temperature is sent. Thinking is adaptive on these
-    models; ``effort`` keeps it short for a task this small. There is no
+    models; ``effort`` keeps it short for a task this small, and is left out
+    for a user's model, which may be older and reject it. There is no
     schema-free JSON mode, so the shared prompt's "respond only with JSON"
     rule is what keeps the output parseable.
 
@@ -24,7 +25,7 @@ class ClaudeProvider(AIProvider):
         model: str,
         name: str = "claude",
         display_name: str = "Claude",
-        effort: str = "low",
+        effort: str | None = "low",
         max_tokens: int = 4096,
         timeout: float = 60,
     ) -> None:
@@ -48,7 +49,7 @@ class ClaudeProvider(AIProvider):
             model=self.model,
             max_tokens=self._max_tokens,
             system=system_prompt,
-            output_config={"effort": self._effort},
+            **({"output_config": {"effort": self._effort}} if self._effort else {}),
             messages=[{"role": "user", "content": user_prompt}],
         )
         if response.stop_reason == "refusal":
