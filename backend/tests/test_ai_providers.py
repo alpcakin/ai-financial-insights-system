@@ -217,6 +217,8 @@ def test_gemini_calls_generate_content_with_json_mime():
     assert kwargs["config"]["system_instruction"] == "sys"
     assert kwargs["config"]["response_mime_type"] == "application/json"
     assert kwargs["config"]["thinking_config"] is None
+    # The measured setting (journal 2.58) and Google's recommendation for Gemini 3.
+    assert kwargs["config"]["temperature"] == 1.0
 
 
 def test_gemini_sends_thinking_level():

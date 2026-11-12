@@ -4,7 +4,11 @@ from app.services.ai.base import AIProvider
 
 
 class GeminiProvider(AIProvider):
-    """Provider for Google Gemini via the ``google-genai`` SDK."""
+    """Provider for Google Gemini via the ``google-genai`` SDK.
+
+    Temperature stays at the API default of 1.0: Google recommends it for Gemini 3,
+    lower values can make the model loop or reason worse, and 1.0 is what was measured.
+    """
 
     def __init__(
         self,
@@ -12,7 +16,7 @@ class GeminiProvider(AIProvider):
         model: str,
         name: str = "gemini",
         display_name: str = "Gemini",
-        temperature: float = 0.3,
+        temperature: float = 1.0,
         thinking_level: str | None = None,
         timeout: float = 60,
     ) -> None:
