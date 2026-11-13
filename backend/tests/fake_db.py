@@ -7,6 +7,8 @@ rows a query touches, so these tests need the filters to work, not to be mocked.
 import uuid
 from types import SimpleNamespace
 
+from tests.catalog import CATALOG
+
 
 #: What the database fills in when an insert leaves a column out.
 _DEFAULTS = {
@@ -15,6 +17,8 @@ _DEFAULTS = {
         "last_fetched_at": None, "last_error": None,
     },
     "user_models": {"base_url": None, "stopped_reason": None},
+    "portfolio": {"added_at": "2026-11-05T00:00:00+00:00"},
+    "watchlist": {"added_at": "2026-11-05T00:00:00+00:00"},
 }
 
 
@@ -104,7 +108,10 @@ class _Query:
 
 
 class FakeDB:
+    """The assets table holds tests.catalog.CATALOG unless it is given."""
+
     def __init__(self, **tables) -> None:
+        tables = {"assets": CATALOG, **tables}
         self.tables = {name: [dict(row) for row in rows] for name, rows in tables.items()}
         self.rpc_calls: list[tuple[str, dict]] = []
         self.rpc_data: list[dict] = []

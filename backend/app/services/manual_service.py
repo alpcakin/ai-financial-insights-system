@@ -37,7 +37,7 @@ _MODEL_ERRORS = {
 _TEST_ARTICLE = {
     "title": "Apple reports record quarterly revenue on strong iPhone demand",
     "description": "Apple said revenue rose 8% from a year earlier, ahead of analyst estimates.",
-    "asset_pool": ["AAPL"],
+    "asset_pool": {"AAPL": "Apple Inc."},
     "category_list": ["Consumer Electronics"],
 }
 

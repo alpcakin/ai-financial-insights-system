@@ -307,8 +307,8 @@ def _model_order(db: Client, user: dict) -> list[str]:
 def get_asset_news(db: Client, user: dict, symbol: str, limit: int, offset: int) -> dict:
     """Stored stories about one catalog asset, newest first, from the modes the user
     has on, read on demand and never written to the feed. Low-importance stories are
-    included."""
-    asset = get_asset(symbol)
+    included, and so are stories stored under the asset's previous symbols."""
+    asset = get_asset(db, symbol)
     if asset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown asset symbol")
 
@@ -316,7 +316,7 @@ def get_asset_news(db: Client, user: dict, symbol: str, limit: int, offset: int)
     model_order = _model_order(db, user)
     rows = db.rpc("asset_news", {
         "p_user_id": user["id"],
-        "p_symbol": asset["symbol"],
+        "p_symbols": [asset["symbol"], *(asset.get("previous_symbols") or [])],
         "p_package": user.get("package_enabled", True),
         "p_manual": user.get("manual_enabled", False),
         "p_provider_order": provider_order,

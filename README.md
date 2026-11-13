@@ -55,7 +55,8 @@ To run it, set `USER_KEY_ENCRYPTION_KEY` and `MANUAL_CHECK_INTERVAL_MINUTES` (se
 
 ## Assets and accounts
 
-- Portfolio and watchlist accept only the symbols in the asset catalog (`backend/app/services/asset_catalog.py`). The app loads the list from `GET /assets`, and asset type and category are taken from the catalog, not from the request.
+- Portfolio and watchlist accept only the symbols in the asset catalog, the `assets` table (migration 026). The app loads the list from `GET /assets`, and asset type and category are taken from the catalog, not from the request. Every asset in the catalog goes into the analysis prompt with its name, whether anyone holds it or not.
+- With `ASSET_CHECK_INTERVAL_HOURS` set, a daily check confirms each symbol against Yahoo (`asset_check_service.py`). When Yahoo gives a symbol to another instrument and exactly one instrument of the same type and name is found, the asset moves to it with its portfolio, watchlist and alert setting rows, and searches still find its stories under the old symbol. Otherwise the asset is marked `needs_review` and its price alerts stop until it is resolved by hand (the SQL is in migration 026).
 - Passwords are hashed with bcrypt. Refresh, email verification and password reset tokens are stored as SHA-256 hashes. Changing or resetting the password ends every session.
 - Login (10 attempts per 15 minutes), registration and password reset (5 per hour) are rate limited per client IP.
 - Portfolio and watchlist assets are treated the same for news matching and alerts; only the weekly report is portfolio-only.
@@ -150,5 +151,6 @@ Run the migration files in order against your Supabase project. The number prefi
 | `023_snap_candidates.sql` | `match_story_leads` returns every lead above a similarity threshold within a publication window, for the Snap judge (apply with the backend stopped) |
 | `024_asset_news.sql` | `asset_news` function: an asset's recent stored news, read on demand |
 | `025_manual_mode.sql` | manual mode: mode settings on users, `user_sources`, `user_models`, `articles.owner_id` with one URL per workspace, `provider_label`, `model_stopped` alerts; `match_story_leads` and `asset_news` scoped to a workspace (apply with the backend stopped) |
+| `026_asset_catalog.sql` | the asset catalog moves from code to the `assets` table with the 148 assets; `rename_asset`; `asset_news` also searches an asset's previous symbols (apply with the backend stopped) |
 
 Row-level security is enabled on every user-owned table. The backend connects with the service role key and is therefore not restricted by those policies; access control is enforced in the API layer through JWT authentication. RLS exists as a second line of defence so that a leaked anon key, or any client talking to Supabase directly, can only reach the rows of the authenticated user.

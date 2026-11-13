@@ -17,7 +17,7 @@ from app.services.ai_service import (
 )
 from tests.conftest import FakeProvider
 
-ASSET_POOL = ["AAPL", "MSFT"]
+ASSET_POOL = {"AAPL": "Apple Inc.", "MSFT": "Microsoft Corporation"}
 CATEGORY_LIST = ["Technology", "Software"]
 
 VALID_RESPONSE = {
@@ -45,14 +45,26 @@ def _asset(**overrides):
 def test_prompt_contains_article_and_pools():
     prompt = build_user_prompt("Apple beats", "Strong quarter", ASSET_POOL, CATEGORY_LIST)
     assert "Apple beats" in prompt
-    assert '"AAPL"' in prompt
+    assert '{"AAPL": "Apple Inc.", "MSFT": "Microsoft Corporation"}' in prompt
     assert '"Software"' in prompt
 
 
 def test_prompt_is_the_measured_text():
-    # P2 of DEVELOPMENT_JOURNAL.md 2.58. A change here invalidates that measurement.
-    prompt = build_user_prompt("T", "D", ["AAPL"], ["Software"])
+    # P2 of DEVELOPMENT_JOURNAL.md 2.58 with asset names (2.69). A change here
+    # invalidates the measurements of this text.
+    prompt = build_user_prompt("T", "D", {"AAPL": "Apple Inc."}, ["Software"])
     assert hashlib.sha256(prompt.encode()).hexdigest() == (
+        "ecd9257ad829b30dc97b19132bfb9990a5e1ba55e0b1b5f914968fb78cc63e85"
+    )
+
+
+def test_prompt_differs_from_the_2_58_text_only_in_the_asset_list():
+    prompt = build_user_prompt("T", "D", {"AAPL": "Apple Inc."}, ["Software"])
+    before = prompt.replace(
+        'ACTIVE ASSETS IN SYSTEM (symbol: name):\n{"AAPL": "Apple Inc."}',
+        'ACTIVE ASSETS IN SYSTEM:\n["AAPL"]',
+    )
+    assert hashlib.sha256(before.encode()).hexdigest() == (
         "96f728ebb1c793f8f2e483f91f19e357c5b4c6faaf875bb9ffc6ee6db3b85c27"
     )
 
@@ -221,6 +233,14 @@ def test_validate_rejects_an_unknown_article_level(level):
     data = {**VALID_RESPONSE, "level": level, "impacted_assets": []}
     with pytest.raises(ValueError):
         _validate_response(data, ASSET_POOL, CATEGORY_LIST)
+
+
+def test_validate_drops_assets_outside_the_pool_and_names_instead_of_symbols():
+    data = {**VALID_RESPONSE, "impacted_assets": [
+        _asset(symbol=["AAPL"]), _asset(symbol="Apple Inc."), _asset(symbol="TSLA"), _asset(symbol="MSFT"),
+    ]}
+    _validate_response(data, ASSET_POOL, CATEGORY_LIST)
+    assert [a["symbol"] for a in data["impacted_assets"]] == ["MSFT"]
 
 
 def test_validate_drops_an_asset_with_an_unknown_level():

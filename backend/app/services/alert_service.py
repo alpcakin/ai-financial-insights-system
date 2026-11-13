@@ -10,7 +10,7 @@ from supabase import Client
 
 from app.models.alert import AlertSettingRequest
 from app.services.ai_service import ALERT_SEVERITY, SEVERITY_LEVELS
-from app.services.asset_catalog import get_asset
+from app.services.asset_catalog import load_catalog
 from app.services.notification_service import (
     batch_fetch_fcm_tokens,
     batch_fetch_impact_push,
@@ -157,10 +157,9 @@ def _rolling_24h_move(symbol: str) -> VolatilityMove | None:
     )
 
 
-def _fetch_volatility_move(symbol: str) -> VolatilityMove | None:
-    asset = get_asset(symbol)
+def _fetch_volatility_move(symbol: str, asset_type: str | None) -> VolatilityMove | None:
     try:
-        if asset is not None and asset["type"] == "crypto":
+        if asset_type == "crypto":
             return _rolling_24h_move(symbol)
         return _session_move(symbol)
     except Exception as e:
@@ -182,8 +181,13 @@ def _wants_alert(setting: dict | None, move: VolatilityMove) -> bool:
 
 
 def generate_volatility_alerts(db: Client) -> int:
+    catalog = {asset["symbol"]: asset for asset in load_catalog(db)}
     asset_users: dict[str, set[str]] = {}
     for user_id, symbol in tracked_assets(db):
+        asset = catalog.get(symbol)
+        # Under review, Yahoo's price may belong to another instrument.
+        if asset is not None and asset["status"] != "active":
+            continue
         asset_users.setdefault(symbol, set()).add(user_id)
     if not asset_users:
         return 0
@@ -195,7 +199,10 @@ def generate_volatility_alerts(db: Client) -> int:
 
     moves: dict[str, VolatilityMove] = {}
     with ThreadPoolExecutor(max_workers=min(len(asset_users), 10)) as executor:
-        futures = {executor.submit(_fetch_volatility_move, sym): sym for sym in asset_users}
+        futures = {
+            executor.submit(_fetch_volatility_move, sym, catalog[sym]["type"] if sym in catalog else None): sym
+            for sym in asset_users
+        }
         for future in as_completed(futures):
             move = future.result()
             if move is not None:

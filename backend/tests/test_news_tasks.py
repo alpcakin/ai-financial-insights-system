@@ -3,9 +3,9 @@ from unittest.mock import MagicMock, patch
 
 from app.services import ai_service
 from app.services.ai import ProviderRegistry, set_registry
-from app.services.asset_catalog import ASSETS
 from app.services.dedup_service import Attachment, Story
 from app.tasks import news_tasks
+from tests.catalog import CATALOG, catalog_row
 from tests.conftest import FakeProvider, chain_mock
 
 
@@ -35,6 +35,7 @@ def _pipeline_db():
     """A db mock that records inserts per table and returns ids for them."""
     db = MagicMock()
     db.inserts = {}
+    db.catalog = CATALOG
 
     def t(name):
         m = chain_mock([])
@@ -42,6 +43,8 @@ def _pipeline_db():
             m.execute.return_value.data = [{"user_id": "u1", "asset_symbol": "AAPL"}]
         elif name == "categories":
             m.execute.return_value.data = [{"name": "Technology"}]
+        elif name == "assets":
+            m.execute.return_value.data = db.catalog
         elif name == "articles":
             def insert(row):
                 rows = row if isinstance(row, list) else [row]
@@ -238,9 +241,23 @@ def test_cycle_offers_the_whole_catalog_to_the_providers(_distribute):
     with patch("app.tasks.news_tasks.analyze_article_all", wraps=news_tasks.analyze_article_all) as spy:
         _run([_article()])
 
-    pool = spy.call_args.kwargs["asset_pool"]
-    assert pool == sorted(asset["symbol"] for asset in ASSETS)
-    assert len(pool) == 148
+    assert spy.call_args.kwargs["asset_pool"] == {a["symbol"]: a["name"] for a in CATALOG}
+
+
+@patch("app.tasks.news_tasks.distribute_article", return_value={})
+def test_cycle_leaves_inactive_assets_out_and_keeps_those_under_review(_distribute):
+    set_registry(ProviderRegistry([FakeProvider("openai", [_response("high")])], "openai"))
+    db = _pipeline_db()
+    db.catalog = [
+        catalog_row("AAPL", "Apple Inc.", "stock", "Consumer Electronics"),
+        catalog_row("TON-USD", "Toncoin", "crypto", "Altcoins", status="needs_review"),
+        catalog_row("OLD", "Gone Corp", "stock", "Software", status="inactive"),
+    ]
+
+    with patch("app.tasks.news_tasks.analyze_article_all", wraps=news_tasks.analyze_article_all) as spy:
+        _run([_article()], db=db)
+
+    assert spy.call_args.kwargs["asset_pool"] == {"AAPL": "Apple Inc.", "TON-USD": "Toncoin"}
 
 
 def test_cycle_stops_early_when_nothing_is_new():

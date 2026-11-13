@@ -18,7 +18,7 @@ from app.core import key_vault
 from app.core.database import get_db
 from app.services.ai import AIProvider
 from app.services.ai_service import analyze_article_all
-from app.services.asset_catalog import ASSETS
+from app.services.asset_catalog import analysis_pool
 from app.services.dedup_service import GroupingUnavailable, Story, assign_stories
 from app.services.feed_service import deliver_unanalyzed, distribute_owned_article
 from app.services.manual_feeds import fetch_feed, forget_other_feeds
@@ -204,7 +204,7 @@ def _run_turn(db, user: dict, models: list[dict], articles: list[dict]) -> None:
 
     providers = _build_providers(db, models)
     labels = {model["id"]: model["label"] for model in models}
-    asset_pool = sorted(asset["symbol"] for asset in ASSETS)
+    asset_pool = analysis_pool(db)
     category_list = sorted(row["name"] for row in db.table("categories").select("name").eq("level", 2).execute().data)
 
     for story in stories:

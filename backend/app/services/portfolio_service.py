@@ -6,7 +6,7 @@ from supabase import Client
 import yfinance as yf
 
 from app.models.portfolio import AddAssetRequest, AssetResponse, PortfolioResponse, UpdateAssetRequest
-from app.services.asset_catalog import get_asset
+from app.services.asset_catalog import LISTED_STATUSES, get_asset
 from app.services.topic_service import auto_subscribe, auto_unsubscribe
 
 
@@ -133,8 +133,8 @@ def get_portfolio(db: Client, user_id: str) -> PortfolioResponse:
 
 
 def add_asset(db: Client, user_id: str, request: AddAssetRequest) -> AssetResponse:
-    asset = get_asset(request.asset_symbol)
-    if asset is None:
+    asset = get_asset(db, request.asset_symbol)
+    if asset is None or asset['status'] not in LISTED_STATUSES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail='Unknown asset symbol',

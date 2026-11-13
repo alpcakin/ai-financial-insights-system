@@ -16,6 +16,7 @@ from app.services.feed_service import (
     get_feed,
     mark_read,
 )
+from tests.catalog import CATALOG, catalog_row
 from tests.conftest import chain_mock, make_db
 from tests.fake_db import FakeDB
 
@@ -321,10 +322,10 @@ def _news_row(article_id, provider, **overrides):
     }
 
 
-def _news_db(rows):
+def _news_db(rows, catalog=CATALOG):
     db = MagicMock()
     db.rpc.return_value.execute.return_value.data = rows
-    db.table.side_effect = lambda name: chain_mock([])
+    db.table.side_effect = lambda name: chain_mock(catalog if name == "assets" else [])
     return db
 
 
@@ -333,7 +334,7 @@ def test_asset_news_asks_in_the_fallback_order_of_the_feed(registry):
     get_asset_news(db, {"id": "u1", "ai_provider": "gemini"}, "xom", 20, 40)
     db.rpc.assert_called_once_with("asset_news", {
         "p_user_id": "u1",
-        "p_symbol": "XOM",
+        "p_symbols": ["XOM"],
         "p_package": True,
         "p_manual": False,
         "p_provider_order": ["gemini", "openai", "claude"],
@@ -341,6 +342,13 @@ def test_asset_news_asks_in_the_fallback_order_of_the_feed(registry):
         "p_limit": 20,
         "p_offset": 40,
     })
+
+
+def test_asset_news_also_finds_stories_under_previous_symbols(registry):
+    catalog = [catalog_row("ARB11841-USD", "Arbitrum", "crypto", "DeFi", previous_symbols=["ARB-USD"])]
+    db = _news_db([], catalog)
+    get_asset_news(db, {"id": "u1", "ai_provider": "openai"}, "arb-usd", 20, 0)
+    assert db.rpc.call_args.args[1]["p_symbols"] == ["ARB11841-USD", "ARB-USD"]
 
 
 def test_asset_news_follows_the_users_modes_and_their_own_model_order(registry):
@@ -381,9 +389,10 @@ def test_asset_news_flags_another_models_analysis_as_fallback(registry):
 def test_asset_news_lists_the_outlets_of_each_story(registry):
     db = MagicMock()
     db.rpc.return_value.execute.return_value.data = [_news_row("a1", "openai")]
-    db.table.side_effect = lambda name: chain_mock([
-        {"duplicate_of": "a1", "title": "Other", "url": "https://y", "source": "WSJ", "published_at": None},
-    ] if name == "articles" else [])
+    db.table.side_effect = lambda name: chain_mock({
+        "articles": [{"duplicate_of": "a1", "title": "Other", "url": "https://y", "source": "WSJ", "published_at": None}],
+        "assets": CATALOG,
+    }.get(name, []))
     article = get_asset_news(db, {"id": "u1", "ai_provider": "openai"}, "XOM", 20, 0)["articles"][0]
     assert [s["source"] for s in article["sources"]] == ["CNBC", "WSJ"]
 

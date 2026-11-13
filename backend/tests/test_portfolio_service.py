@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from app.models.portfolio import AddAssetRequest, UpdateAssetRequest
 from app.services.portfolio_service import add_asset, delete_asset, get_portfolio, update_asset
+from tests.catalog import CATALOG
 from tests.conftest import chain_mock, make_db
 
 ASSET_ROW = {
@@ -60,7 +61,7 @@ def test_add_asset_success(mock_ticker):
     existing_mock = chain_mock([])
     insert_mock = chain_mock([{**ASSET_ROW}])
     db = make_db({})
-    db.table.side_effect = [existing_mock, insert_mock, chain_mock([]), chain_mock([])]
+    db.table.side_effect = [chain_mock(CATALOG), existing_mock, insert_mock, chain_mock([]), chain_mock([])]
 
     req = AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=150.0)
     result = add_asset(db, "u1", req)
@@ -70,7 +71,7 @@ def test_add_asset_success(mock_ticker):
 @patch("app.services.portfolio_service.yf.Ticker")
 def test_add_asset_duplicate(mock_ticker):
     db = make_db({})
-    db.table.side_effect = [chain_mock([{"id": "existing"}])]
+    db.table.side_effect = [chain_mock(CATALOG), chain_mock([{"id": "existing"}])]
     req = AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=150.0)
     with pytest.raises(HTTPException) as exc:
         add_asset(db, "u1", req)
@@ -81,7 +82,7 @@ def test_add_asset_duplicate(mock_ticker):
 def test_add_asset_yfinance_fails(mock_ticker):
     mock_ticker.return_value.fast_info.last_price = None
     db = make_db({})
-    db.table.side_effect = [chain_mock([]), chain_mock([{**ASSET_ROW}]), chain_mock([]), chain_mock([])]
+    db.table.side_effect = [chain_mock(CATALOG), chain_mock([]), chain_mock([{**ASSET_ROW}]), chain_mock([]), chain_mock([])]
     req = AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=150.0)
     result = add_asset(db, "u1", req)
     assert result.current_price is None
@@ -132,7 +133,7 @@ def test_delete_asset_not_found():
 def test_current_price_nan(mock_ticker):
     mock_ticker.return_value.fast_info.last_price = float("nan")
     db = make_db({})
-    db.table.side_effect = [chain_mock([]), chain_mock([{**ASSET_ROW}]), chain_mock([]), chain_mock([])]
+    db.table.side_effect = [chain_mock(CATALOG), chain_mock([]), chain_mock([{**ASSET_ROW}]), chain_mock([]), chain_mock([])]
     req = AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=150.0)
     result = add_asset(db, "u1", req)
     assert result.current_price is None
@@ -142,7 +143,7 @@ def test_current_price_nan(mock_ticker):
 def test_current_price_zero(mock_ticker):
     mock_ticker.return_value.fast_info.last_price = 0.0
     db = make_db({})
-    db.table.side_effect = [chain_mock([]), chain_mock([{**ASSET_ROW}]), chain_mock([]), chain_mock([])]
+    db.table.side_effect = [chain_mock(CATALOG), chain_mock([]), chain_mock([{**ASSET_ROW}]), chain_mock([]), chain_mock([])]
     req = AddAssetRequest(asset_symbol="AAPL", quantity=10, purchase_price=150.0)
     result = add_asset(db, "u1", req)
     assert result.current_price is None

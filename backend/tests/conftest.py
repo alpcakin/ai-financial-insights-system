@@ -6,6 +6,7 @@ from app.core.rate_limit import email_limiter, login_limiter, model_test_limiter
 from app.main import app
 from app.dependencies import get_current_user, get_db
 from app.services.ai import AIProvider, ProviderRegistry, set_registry
+from tests.catalog import CATALOG
 
 
 def chain_mock(data, count=None):
@@ -23,6 +24,8 @@ def chain_mock(data, count=None):
 
 
 def make_db(tables: dict):
+    """The assets table holds tests.catalog.CATALOG unless ``tables`` says otherwise."""
+    tables = {"assets": CATALOG, **tables}
     db = MagicMock()
     db.table.side_effect = lambda name: chain_mock(tables.get(name, []))
     return db

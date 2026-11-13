@@ -25,6 +25,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.news_tasks import process_news_cycle, stop_requested
     from app.tasks.report_tasks import generate_weekly_reports
     from app.services.alert_service import generate_volatility_alerts
+    from app.services.asset_check_service import run_asset_check
     from app.services.retention_service import purge_old_data
     from app.services.ai import get_registry
 
@@ -64,6 +65,23 @@ async def lifespan(app: FastAPI):
             misfire_grace_time=60,
         )
         logger.info("Manual mode sources checked every %d min", settings.manual_check_interval_minutes)
+
+    if settings.asset_check_interval_hours > 0:
+        def _asset_check():
+            try:
+                run_asset_check(get_db())
+            except Exception as e:
+                logger.error("Asset check failed: %s", e)
+
+        # Runs at startup too; assets checked in the last 20 hours are skipped.
+        scheduler.add_job(
+            _asset_check,
+            "interval",
+            hours=settings.asset_check_interval_hours,
+            next_run_time=datetime.now(),
+            misfire_grace_time=3600,
+        )
+        logger.info("Asset check scheduled every %d h", settings.asset_check_interval_hours)
 
     if settings.retention_days > 0:
         def _retention():

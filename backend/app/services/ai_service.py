@@ -43,13 +43,14 @@ _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 def build_user_prompt(
     title: str,
     description: str,
-    asset_pool: list[str],
+    asset_pool: dict[str, str],
     category_list: list[str],
     other_reports: list[dict] | None = None,
 ) -> str:
-    """The text is frozen: a single-report prompt is exactly the one measured
-    in DEVELOPMENT_JOURNAL.md 2.58, and editing it invalidates that measurement.
-    ``other_reports`` are other outlets' versions of the same event that
+    """The text is frozen: a single-report prompt is P2 of DEVELOPMENT_JOURNAL.md
+    2.58 with asset names added to the asset list (2.69), and editing it
+    invalidates the measurements of that text. ``asset_pool`` maps symbol to
+    name. ``other_reports`` are other outlets' versions of the same event that
     arrived together."""
     reports = ""
     if other_reports:
@@ -61,7 +62,7 @@ def build_user_prompt(
 Title: "{title}"
 Description: "{description}"{reports}
 
-ACTIVE ASSETS IN SYSTEM:
+ACTIVE ASSETS IN SYSTEM (symbol: name):
 {json.dumps(asset_pool)}
 
 CATEGORY SYSTEM:
@@ -150,7 +151,7 @@ def _text(value) -> str:
     return value.replace("\x00", "") if isinstance(value, str) else ""
 
 
-def _validate_response(data: dict, asset_pool: list[str], category_list: list[str]) -> dict:
+def _validate_response(data: dict, asset_pool: dict[str, str], category_list: list[str]) -> dict:
     severity = SEVERITY_LEVELS.get(data.get("level"))
     if severity is None:
         raise ValueError(f"Unknown article level: {data.get('level')!r}")
@@ -161,7 +162,8 @@ def _validate_response(data: dict, asset_pool: list[str], category_list: list[st
 
     valid_assets = []
     for asset in data.get("impacted_assets") or []:
-        if asset.get("symbol") not in asset_pool:
+        symbol = asset.get("symbol")
+        if not isinstance(symbol, str) or symbol not in asset_pool:
             continue
         severity = SEVERITY_LEVELS.get(asset.get("level"))
         if severity is None:
@@ -193,7 +195,7 @@ def _loggable(provider: AIProvider, error: Exception) -> str:
 def analyze_article(
     title: str,
     description: str,
-    asset_pool: list[str],
+    asset_pool: dict[str, str],
     category_list: list[str],
     provider: AIProvider | None = None,
     other_reports: list[dict] | None = None,
@@ -249,7 +251,7 @@ def analyze_article(
 def analyze_article_all(
     title: str,
     description: str,
-    asset_pool: list[str],
+    asset_pool: dict[str, str],
     category_list: list[str],
     providers: list[AIProvider] | None = None,
     other_reports: list[dict] | None = None,

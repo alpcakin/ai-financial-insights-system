@@ -15,6 +15,7 @@ from app.services.alert_service import (
     set_alert_setting,
 )
 from app.services.notification_service import batch_fetch_fcm_tokens
+from tests.catalog import CATALOG, catalog_row
 from tests.conftest import chain_mock, make_db
 
 
@@ -58,7 +59,7 @@ def _volatility_db(tracked: dict[str, list[dict]], existing=None):
     def t(name):
         if name == "alerts":
             return db.alerts
-        m = chain_mock(tracked.get(name, []))
+        m = chain_mock(tracked.get(name, CATALOG if name == "assets" else []))
         if name == "users":
             m.execute.return_value.data = [{"id": "u1", "notification_preferences": {}}]
         return m
@@ -287,6 +288,18 @@ def test_crypto_volatility_uses_24_hours_and_one_alert_a_day(mock_ticker):
     assert alert["session_date"] == "2026-04-28"
     db.alerts.gte.assert_called_once()
     assert db.alerts.gte.call_args.args[0] == "created_at"
+
+
+@patch("app.services.alert_service.yf.Ticker")
+def test_asset_under_review_gets_no_volatility_alert(mock_ticker):
+    _mock_prices(mock_ticker, _daily_closes(0.05))
+    db = _volatility_db({
+        "portfolio": [{"user_id": "u1", "asset_symbol": "TON-USD"}],
+        "assets": [catalog_row("TON-USD", "Toncoin", "crypto", "Altcoins", status="needs_review")],
+    })
+
+    assert generate_volatility_alerts(db) == 0
+    mock_ticker.assert_not_called()
 
 
 @patch("app.services.alert_service.yf.Ticker")

@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from app.core.security import hash_password
+from tests.catalog import CATALOG
 from tests.conftest import chain_mock, make_db, FAKE_USER
 
 ASSET_ROW = {
@@ -129,6 +130,7 @@ def test_add_portfolio_201(client, mock_db):
             index=pd.date_range("2026-04-27", periods=2),
         )
         mock_db.table.side_effect = [
+            chain_mock(CATALOG),
             chain_mock([]),
             chain_mock([ASSET_ROW]),
             chain_mock([]),
