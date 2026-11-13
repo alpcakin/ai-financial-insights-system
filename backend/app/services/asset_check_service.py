@@ -45,7 +45,7 @@ _IGNORED_WORDS = {
 }
 
 
-def _words(name: str | None) -> set[str]:
+def name_words(name: str | None) -> set[str]:
     words = re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).split()
     return {w for w in words if w not in _IGNORED_WORDS and not w.isdigit()}
 
@@ -53,7 +53,7 @@ def _words(name: str | None) -> set[str]:
 def same_name(a: str | None, b: str | None) -> bool:
     """Whether every word of the shorter name is in the longer one. Whole words,
     so "ARbit" is not "Arbitrum"."""
-    small, large = sorted((_words(a), _words(b)), key=len)
+    small, large = sorted((name_words(a), name_words(b)), key=len)
     return bool(small) and small <= large
 
 
@@ -100,7 +100,7 @@ def _search(query: str, asset_type: str) -> list[Quote]:
     ]
 
 
-def _display_name(quote: Quote, asset_type: str) -> str:
+def display_name(quote: Quote, asset_type: str) -> str:
     name = quote.long_name or quote.short_name
     return re.sub(r"\s+USD$", "", name) if asset_type == "crypto" else name
 
@@ -144,7 +144,7 @@ def check_asset(asset: dict, catalog: list[dict]) -> Outcome:
         symbol, "renamed",
         yahoo_name=confirmed.name,
         new_symbol=candidate.symbol,
-        new_name=_display_name(confirmed, asset["type"]),
+        new_name=display_name(confirmed, asset["type"]),
     )
 
 

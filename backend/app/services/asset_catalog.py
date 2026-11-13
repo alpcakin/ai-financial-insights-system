@@ -12,6 +12,14 @@ from supabase import Client
 LISTED_STATUSES = ("active", "needs_review")
 
 
+_PUBLIC_FIELDS = ("symbol", "name", "type", "category")
+
+
+def asset_info(asset: dict) -> dict:
+    """The fields of an asset that clients see."""
+    return {key: asset[key] for key in _PUBLIC_FIELDS}
+
+
 def load_catalog(db: Client) -> list[dict]:
     return db.table("assets").select("*").order("symbol").execute().data or []
 

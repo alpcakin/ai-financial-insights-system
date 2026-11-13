@@ -19,6 +19,7 @@ _DEFAULTS = {
     "user_models": {"base_url": None, "stopped_reason": None},
     "portfolio": {"added_at": "2026-11-05T00:00:00+00:00"},
     "watchlist": {"added_at": "2026-11-05T00:00:00+00:00"},
+    "assets": {"status": "active", "previous_symbols": [], "review_note": None, "missed_checks": 0},
 }
 
 
@@ -32,6 +33,7 @@ class _Query:
         self._payload = None
         self._order: tuple[str, bool] | None = None
         self._on_conflict: list[str] = []
+        self._ignore_duplicates = False
 
     def select(self, columns="*", **_):
         self._columns = None if columns == "*" else [c.strip() for c in columns.split(",")]
@@ -62,9 +64,10 @@ class _Query:
         self._action, self._payload = "insert", rows if isinstance(rows, list) else [rows]
         return self
 
-    def upsert(self, rows, on_conflict=""):
+    def upsert(self, rows, on_conflict="", ignore_duplicates=False):
         self._action, self._payload = "upsert", rows if isinstance(rows, list) else [rows]
         self._on_conflict = on_conflict.split(",")
+        self._ignore_duplicates = ignore_duplicates
         return self
 
     def update(self, values):
@@ -84,6 +87,8 @@ class _Query:
             data = []
             for row in self._payload:
                 same = [r for r in rows if all(r.get(c) == row.get(c) for c in self._on_conflict)]
+                if same and self._ignore_duplicates:
+                    continue
                 if same:
                     same[0].update(row)
                     data.append(same[0])
