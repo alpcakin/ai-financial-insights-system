@@ -57,12 +57,14 @@ class UserRepository {
     bool? impactAlerts,
     String? impactAlertLevel,
     bool? volatilityAlerts,
+    String? feedLevel,
     String? aiProvider,
   }) async {
     final body = <String, dynamic>{};
     if (impactAlerts != null) body['impact_alerts'] = impactAlerts;
     if (impactAlertLevel != null) body['impact_alert_level'] = impactAlertLevel;
     if (volatilityAlerts != null) body['volatility_alerts'] = volatilityAlerts;
+    if (feedLevel != null) body['feed_level'] = feedLevel;
     if (aiProvider != null) body['ai_provider'] = aiProvider;
 
     final response = await http

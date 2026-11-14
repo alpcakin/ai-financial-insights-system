@@ -10,6 +10,7 @@ from app.services.user_service import (
     change_password,
     delete_account,
     export_user_data,
+    feed_minimum,
     get_user_profile,
     effective_provider,
     list_ai_providers,
@@ -59,6 +60,27 @@ def test_update_preferences_only_volatility():
     result = update_preferences(db, user, req)
     assert result["notification_preferences"]["impact_alerts"] is True
     assert result["notification_preferences"]["volatility_alerts"] is False
+
+
+def test_the_feed_shows_medium_and_above_unless_asked_for_low():
+    assert get_user_profile(_USER)["notification_preferences"]["feed_level"] == "medium"
+    assert feed_minimum(_USER) == 2
+    assert feed_minimum({"notification_preferences": None}) == 2
+    assert feed_minimum({"notification_preferences": {"feed_level": "low"}}) == 1
+
+
+def test_asking_for_low_stories_keeps_the_other_preferences():
+    db = make_db({})
+    db.table.side_effect = lambda _: chain_mock([])
+    result = update_preferences(db, _USER, UpdatePreferencesRequest(feed_level="low"))
+    prefs = result["notification_preferences"]
+    assert prefs["feed_level"] == "low"
+    assert prefs["impact_alerts"] is False
+
+
+def test_only_low_and_medium_are_feed_levels():
+    with pytest.raises(ValueError):
+        UpdatePreferencesRequest(feed_level="high")
 
 
 def test_change_password_revokes_all_sessions():

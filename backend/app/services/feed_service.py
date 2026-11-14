@@ -4,10 +4,10 @@ from fastapi import HTTPException, status
 from supabase import Client
 
 from app.services.ai import display_name_for, get_registry
-from app.services.ai_service import qualifies
+from app.services.ai_service import MIN_SEVERITY
 from app.services.asset_catalog import get_asset
 from app.services.tracked_assets import tracked_assets
-from app.services.user_service import effective_provider
+from app.services.user_service import effective_provider, feed_minimum
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +30,13 @@ def _asset_users(db: Client, related_assets: list[str], only_user: str | None = 
     return {user_id for user_id, _ in pairs}
 
 
-def _fetch_user_providers(db: Client, user_ids: set[str]) -> dict[str, str | None]:
-    """The chosen provider of each user who has package mode on."""
-    result = db.table("users").select("id, ai_provider, package_enabled").in_("id", list(user_ids)).execute()
-    return {row["id"]: row.get("ai_provider") for row in result.data if row.get("package_enabled", True)}
+def _fetch_package_users(db: Client, user_ids: set[str]) -> dict[str, dict]:
+    """Each user who has package mode on, with their chosen provider and feed level."""
+    result = (
+        db.table("users").select("id, ai_provider, package_enabled, notification_preferences")
+        .in_("id", list(user_ids)).execute()
+    )
+    return {row["id"]: row for row in result.data if row.get("package_enabled", True)}
 
 
 def choose_analysis(
@@ -73,18 +76,15 @@ def distribute_article(
     """Assign an article to users, each through their chosen provider's analysis.
 
     ``analyses`` are the stored rows for this article (one per provider, each
-    with an ``id``). ``topic_users`` maps users following a matched topic to
-    those topics; a topic match counts with every qualifying analysis. Users who
-    already have the article keep their entry, so a story can be distributed
-    again once its topics arrive late. Returns a mapping of analysis id to the
-    users who got it now.
+    with an ``id``). An analysis counts for a user when its level reaches their
+    feed level: medium, or low for users who asked for it. ``topic_users`` maps
+    users following a matched topic to those topics; a topic match counts with
+    every analysis. Users who already have the article keep their entry, so a
+    story can be distributed again once its topics arrive late. Returns a
+    mapping of analysis id to the users who got it now.
     """
     topic_users = topic_users or {}
-    qualifying = [a for a in analyses if qualifies(a)]
-    if not qualifying:
-        return {}
-
-    by_provider = {a["provider"]: a for a in qualifying}
+    by_provider = {a["provider"]: a for a in analyses}
     matched_by_provider: dict[str, set[str]] = {
         provider: _asset_users(db, analysis.get("related_assets") or []) | set(topic_users)
         for provider, analysis in by_provider.items()
@@ -96,18 +96,24 @@ def distribute_article(
     if not all_users:
         return {}
 
-    user_providers = _fetch_user_providers(db, all_users)
-    analyzed_providers = {a["provider"] for a in analyses}
+    package_users = _fetch_package_users(db, all_users)
+    analyzed_providers = set(by_provider)
 
     assignments: dict[str, set[str]] = {}
     rows = []
     for user_id in all_users:
-        if user_id not in user_providers:
+        user = package_users.get(user_id)
+        if user is None:
             continue
-        user_provider = user_providers[user_id]
+        minimum = feed_minimum(user)
+        eligible = {
+            provider: users for provider, users in matched_by_provider.items()
+            if by_provider[provider].get("severity", 0) >= minimum
+        }
+        user_provider = user.get("ai_provider")
         chosen = choose_analysis(
             user_provider,
-            matched_by_provider,
+            eligible,
             user_id,
             default_provider,
             analyzed_providers,
@@ -145,11 +151,13 @@ def distribute_owned_article(
     owner_id: str,
     selected_model: str | None,
     topic_ids: set[str] = frozenset(),
+    minimum: int = MIN_SEVERITY,
 ) -> dict[str, set[str]]:
     """Give a manual-mode story to its owner, and no one else, through their chosen
     model. It follows the package's rule, but falls back only among their own models.
-    ``topic_ids`` are the owner's followed topics that matched the story."""
-    by_provider = {a["provider"]: a for a in analyses if qualifies(a)}
+    ``topic_ids`` are the owner's followed topics that matched the story, and
+    ``minimum`` is the owner's feed level."""
+    by_provider = {a["provider"]: a for a in analyses if a.get("severity", 0) >= minimum}
     matched_by_provider = {
         provider: _asset_users(db, analysis.get("related_assets") or [], only_user=owner_id)
         | ({owner_id} if topic_ids else set())

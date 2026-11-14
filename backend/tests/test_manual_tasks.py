@@ -666,3 +666,20 @@ def test_when_snap_is_down_the_story_waits_and_arrives_later_without_a_new_analy
     [entry] = world.db.rows("user_news_feed")
     assert entry["topic_ids"] == ["t-ny"]
     assert world.providers["u1-m1"].calls == 1
+
+
+# ── Feed level ───────────────────────────────────────────────────────────────
+
+def test_a_low_story_reaches_an_owner_who_sees_low_stories_without_an_alert(world):
+    world.providers["u1-m1"] = _provider("u1-m1", answer=_answer(level="low"))
+    world.db.rows("users")[0]["notification_preferences"] = {"feed_level": "low"}
+    world.run()
+    assert len(world.db.rows("user_news_feed")) == 1
+    assert world.db.rows("alerts") == []
+
+
+def test_a_low_story_stays_out_of_a_default_feed(world):
+    world.providers["u1-m1"] = _provider("u1-m1", answer=_answer(level="low"))
+    world.run()
+    assert world.db.rows("user_news_feed") == []
+    assert len(world.db.rows("articles")) == 1

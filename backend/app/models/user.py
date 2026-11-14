@@ -38,12 +38,15 @@ class RegisterResponse(BaseModel):
 
 
 ImpactAlertLevel = Literal["high", "very_high"]
+# The lowest level of news delivered to the feed; "low" also brings the stories rated low.
+FeedLevel = Literal["low", "medium"]
 
 
 class NotificationPreferences(BaseModel):
     impact_alerts: bool = True
     impact_alert_level: ImpactAlertLevel = "high"
     volatility_alerts: bool = True
+    feed_level: FeedLevel = "medium"
 
 
 class UserProfileResponse(BaseModel):
@@ -58,6 +61,7 @@ class UpdatePreferencesRequest(BaseModel):
     impact_alerts: bool | None = None
     impact_alert_level: ImpactAlertLevel | None = None
     volatility_alerts: bool | None = None
+    feed_level: FeedLevel | None = None
     ai_provider: Annotated[str, StringConstraints(min_length=1, max_length=32)] | None = None
 
 

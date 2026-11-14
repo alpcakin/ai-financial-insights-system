@@ -17,7 +17,6 @@ from cryptography.fernet import InvalidToken
 from app.core import key_vault
 from app.core.database import get_db
 from app.services.ai import AIProvider
-from app.services.ai_service import qualifies
 from app.services.asset_catalog import analysis_pool
 from app.services.dedup_service import GroupingUnavailable, Story, assign_stories
 from app.services.feed_service import deliver_unanalyzed, distribute_owned_article
@@ -34,6 +33,7 @@ from app.services.story_topics import (
     topic_followers,
 )
 from app.services.user_models import build_provider, classify_failure
+from app.services.user_service import feed_minimum
 from app.tasks.news_tasks import (
     analyze_with_topics,
     article_row,
@@ -170,7 +170,8 @@ def _process_owned_story(
 
     for name, analysis in analyses.items():
         analysis["provider_label"] = labels[name]
-    worth_showing = any(qualifies(a) for a in analyses.values())
+    minimum = feed_minimum(user)
+    worth_showing = any(a["severity"] >= minimum for a in analyses.values())
     article_id, stored = store_story(
         db, story, analyses, owner_id=user_id, topics_pending=topics is None and worth_showing,
     )
@@ -185,7 +186,7 @@ def _process_owned_story(
         return True
 
     assignments = distribute_owned_article(
-        db, article_id, stored, user_id, user.get("manual_model_id"), _owner_topics(db, user_id, topics),
+        db, article_id, stored, user_id, user.get("manual_model_id"), _owner_topics(db, user_id, topics), minimum,
     )
     send_impact_alerts(db, article_id, stored, assignments)
     return True
@@ -206,7 +207,7 @@ def _retry_pending_topics(db, user: dict, questions, topic_model) -> None:
             continue
         stored = db.table("article_analyses").select("*").eq("article_id", article["id"]).execute().data
         assignments = distribute_owned_article(
-            db, article["id"], stored, user_id, user.get("manual_model_id"), owner_topics,
+            db, article["id"], stored, user_id, user.get("manual_model_id"), owner_topics, feed_minimum(user),
         )
         send_impact_alerts(db, article["id"], stored, assignments)
 
@@ -280,7 +281,7 @@ def process_manual_cycle() -> dict:
 
     db = get_db()
     users = (
-        db.table("users").select("id, manual_grouping, manual_model_id, manual_topic_model_id")
+        db.table("users").select("id, manual_grouping, manual_model_id, manual_topic_model_id, notification_preferences")
         .eq("manual_enabled", True).execute().data
     )
     if not users:

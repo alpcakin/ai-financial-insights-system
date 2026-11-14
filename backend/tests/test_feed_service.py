@@ -611,3 +611,45 @@ def test_categories_come_from_snap_and_topics_only_from_the_readers_own():
     assert articles[1]["related_categories"] == ["Software"]
     assert articles[1]["matched_topics"] == []
     assert "topic_ids" not in articles[0]
+
+
+# ── Feed level: low stories for users who ask for them ───────────────────────
+
+def _level_db():
+    return FakeDB(
+        users=[
+            {"id": "wants-low", "ai_provider": "openai", "package_enabled": True,
+             "notification_preferences": {"feed_level": "low"}},
+            {"id": "default", "ai_provider": "openai", "package_enabled": True, "notification_preferences": {}},
+        ],
+        portfolio=[{"user_id": "wants-low", "asset_symbol": "AAPL"}, {"user_id": "default", "asset_symbol": "AAPL"}],
+    )
+
+
+def test_a_low_story_reaches_only_users_who_see_low_stories(registry):
+    db = _level_db()
+    result = distribute_article(db, "a1", [_analysis("openai", severity=1)], "openai")
+    assert result == {"an-openai": {"wants-low"}}
+    assert [r["user_id"] for r in db.rows("user_news_feed")] == ["wants-low"]
+
+
+def test_a_medium_story_reaches_both(registry):
+    db = _level_db()
+    result = distribute_article(db, "a1", [_analysis("openai", severity=2)], "openai")
+    assert result == {"an-openai": {"wants-low", "default"}}
+
+
+def test_the_users_model_still_decides_at_their_level(registry):
+    db = _level_db()
+    analyses = [_analysis("openai", severity=1), _analysis("gemini", severity=3)]
+    result = distribute_article(db, "a1", analyses, "openai")
+    # Both use openai, which rated it low: only the user who sees low stories gets it.
+    assert result == {"an-openai": {"wants-low"}}
+
+
+def test_an_owned_low_story_follows_the_owners_level():
+    analyses = [_analysis("m1", severity=1)]
+    holder = [{"user_id": "u1", "asset_symbol": "AAPL"}]
+    assert distribute_owned_article(FakeDB(portfolio=holder), "a1", analyses, "u1", "m1") == {}
+    result = distribute_owned_article(FakeDB(portfolio=holder), "a1", analyses, "u1", "m1", minimum=1)
+    assert result == {"an-m1": {"u1"}}

@@ -20,6 +20,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool? _impactOverride;
   String? _impactLevelOverride;
   bool? _volatilityOverride;
+  String? _feedLevelOverride;
+  bool _updatingFeedLevel = false;
   bool _updatingImpact = false;
   bool _updatingImpactLevel = false;
   bool _updatingVolatility = false;
@@ -90,6 +92,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       }
     }
     if (mounted) setState(() { _volatilityOverride = null; _updatingVolatility = false; });
+  }
+
+  Future<void> _setFeedLevel(String value) async {
+    setState(() { _feedLevelOverride = value; _updatingFeedLevel = true; });
+    try {
+      final token = ref.read(authProvider).token ?? '';
+      await ref.read(userProvider.notifier).updatePreferences(token, feedLevel: value);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update preferences')),
+        );
+      }
+    }
+    if (mounted) setState(() { _feedLevelOverride = null; _updatingFeedLevel = false; });
   }
 
   Future<void> _selectProvider(String name) async {
@@ -233,6 +250,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final impactValue = _impactOverride ?? prefs?.impactAlerts ?? true;
     final impactLevel = _impactLevelOverride ?? prefs?.impactAlertLevel ?? 'high';
     final volatilityValue = _volatilityOverride ?? prefs?.volatilityAlerts ?? true;
+    final feedLevel = _feedLevelOverride ?? prefs?.feedLevel ?? 'medium';
     final currentProvider = userState.currentProvider;
     final providerLabel = currentProvider?.displayName ??
         userState.profile?.aiProvider ??
@@ -350,6 +368,34 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
             const SizedBox(height: 8),
             _SectionHeader(title: 'News Mode'),
+
+            _SettingsTile(
+              child: ListTile(
+                title: Text('Show in feed',
+                    style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500)),
+                subtitle: Text(
+                  feedLevel == 'low'
+                      ? 'Low news is mostly opinion, previews and ordinary moves. '
+                          'Applies to news arriving from now on.'
+                      : 'Low news stays out of the feed; an asset\'s news page still lists it.',
+                  style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+                ),
+                trailing: DropdownButton<String>(
+                  value: feedLevel,
+                  underline: const SizedBox.shrink(),
+                  style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF0F172A)),
+                  onChanged: _updatingFeedLevel
+                      ? null
+                      : (value) {
+                          if (value != null && value != feedLevel) _setFeedLevel(value);
+                        },
+                  items: const [
+                    DropdownMenuItem(value: 'medium', child: Text('Medium and above')),
+                    DropdownMenuItem(value: 'low', child: Text('Everything')),
+                  ],
+                ),
+              ),
+            ),
 
             _SettingsTile(
               child: ListTile(

@@ -212,6 +212,15 @@ void main() {
     });
   });
 
+  group('Feed level', () {
+    test('the feed shows medium and above unless the user asked for low', () {
+      expect(NotificationPreferences.fromJson({}).feedLevel, 'medium');
+      final low = NotificationPreferences.fromJson({'feed_level': 'low'});
+      expect(low.feedLevel, 'low');
+      expect(low.copyWith(impactAlerts: false).feedLevel, 'low');
+    });
+  });
+
   group('Topics', () {
     test('a topic users wrote has no level and is their own', () {
       final topic = TopicCategory.fromJson(

@@ -4,6 +4,7 @@ from supabase import Client
 from app.core.security import hash_password, verify_password
 from app.models.user import UpdatePreferencesRequest
 from app.services.ai import get_registry
+from app.services.ai_service import MIN_SEVERITY, SEVERITY_LEVELS
 
 
 def _parse_prefs(raw: dict | None) -> dict:
@@ -13,7 +14,15 @@ def _parse_prefs(raw: dict | None) -> dict:
         "impact_alerts": raw.get("impact_alerts", True),
         "impact_alert_level": raw.get("impact_alert_level", "high"),
         "volatility_alerts": raw.get("volatility_alerts", True),
+        "feed_level": raw.get("feed_level", "medium"),
     }
+
+
+def feed_minimum(user: dict) -> int:
+    """The lowest level delivered to this user's feed: medium, or low when they asked for it."""
+    if _parse_prefs(user.get("notification_preferences"))["feed_level"] == "low":
+        return SEVERITY_LEVELS["low"]
+    return MIN_SEVERITY
 
 
 def effective_provider(user: dict) -> str:
@@ -45,6 +54,8 @@ def update_preferences(db: Client, user: dict, request: UpdatePreferencesRequest
         prefs["impact_alert_level"] = request.impact_alert_level
     if request.volatility_alerts is not None:
         prefs["volatility_alerts"] = request.volatility_alerts
+    if request.feed_level is not None:
+        prefs["feed_level"] = request.feed_level
 
     updates: dict = {"notification_preferences": prefs}
 

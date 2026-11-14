@@ -135,21 +135,25 @@ def test_cycle_keeps_low_severity_analysis_when_another_qualifies(mock_distribut
     assert severities == {"openai": 1, "gemini": 2}
 
 
+@patch("app.tasks.news_tasks.generate_impact_alerts")
 @patch("app.tasks.news_tasks.distribute_article")
-def test_low_severity_story_is_stored_but_not_distributed(mock_distribute):
+def test_low_severity_story_is_stored_and_left_to_each_users_feed_level(mock_distribute, mock_alerts):
     # Stored so that the next cycle does not analyze it again and later
-    # reports of the same event can join it.
+    # reports of the same event can join it. Distribution decides per user:
+    # only those who see low stories get it, and it never raises an alert.
     set_registry(ProviderRegistry([
         FakeProvider("openai", [_response("low")]),
         FakeProvider("gemini", [_response("low")]),
     ], "openai"))
+    mock_distribute.return_value = {"an-openai": {"u1"}}
 
     result, db = _run([_article()])
 
     assert result == {"processed": 0, "low_severity": 1, "failed": 0, "attached": 0, "late_topics": 0}
     assert len(db.inserts["articles"]) == 1
     assert len(db.inserts["article_analyses"]) == 2
-    mock_distribute.assert_not_called()
+    mock_distribute.assert_called_once()
+    mock_alerts.assert_not_called()
 
 
 @patch("app.tasks.news_tasks.distribute_article", return_value={})
@@ -331,14 +335,14 @@ def test_a_story_worth_showing_waits_for_its_topics_when_snap_fails(store, distr
     assert distribute.call_args.args[4] == {}
 
 
-@patch("app.tasks.news_tasks.distribute_article")
-def test_a_low_story_does_not_wait_for_its_topics(distribute):
+@patch("app.tasks.news_tasks.distribute_article", return_value={})
+def test_a_low_story_also_waits_for_its_topics(distribute):
     set_registry(ProviderRegistry([FakeProvider("openai", [_response("low")])], "openai"))
     with patch("app.tasks.news_tasks.match_story", return_value=None):
         result, db = _run([_article()])
     assert result["low_severity"] == 1
-    assert "topics_pending_since" not in db.inserts["articles"][0]
-    distribute.assert_not_called()
+    assert db.inserts["articles"][0]["topics_pending_since"]
+    assert distribute.call_args.args[4] == {}
 
 
 @patch("app.tasks.news_tasks.generate_impact_alerts")

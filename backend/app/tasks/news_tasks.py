@@ -90,11 +90,13 @@ def store_story(
 
 
 def send_impact_alerts(db, article_id: str, stored: list[dict], assignments: dict[str, set[str]]) -> None:
+    """Alerts follow the rule they were measured with: the story medium or above and
+    an asset high or above, also for users who see low stories in their feed."""
     analyses_by_id = {row["id"]: row for row in stored}
     for analysis_id, user_ids in assignments.items():
         analysis = analyses_by_id[analysis_id]
         impacts = analysis.get("asset_impacts") or []
-        if user_ids and impacts:
+        if user_ids and impacts and qualifies(analysis):
             generate_impact_alerts(
                 db, article_id, user_ids, impacts,
                 ai_provider=analysis.get("provider_label") or analysis["provider"],
@@ -126,21 +128,21 @@ def _process_story(db, story: Story, asset_pool, questions, default_provider) ->
         logger.warning("All providers failed, retrying next cycle: %s", lead["url"])
         return "failed"
 
-    worth_showing = any(qualifies(a) for a in analyses.values())
-    article_id, stored = store_story(db, story, analyses, topics_pending=topics is None and worth_showing)
+    # Even a low story waits for its topics: some users see low stories too.
+    article_id, stored = store_story(db, story, analyses, topics_pending=topics is None)
     if article_id is None:
         return "failed"
     if topics is not None:
         store_match(db, article_id, topics)
 
-    if not worth_showing:
-        severities = {name: a["severity"] for name, a in analyses.items()}
-        logger.info("Stored without distributing, severity too low %s: %s", severities, lead["url"])
-        return "low_severity"
-
     followers = topic_followers(db, topics.matched_ids) if topics else {}
     assignments = distribute_article(db, article_id, stored, default_provider, followers)
     send_impact_alerts(db, article_id, stored, assignments)
+
+    if not any(qualifies(a) for a in analyses.values()):
+        severities = {name: a["severity"] for name, a in analyses.items()}
+        logger.info("Low story %s, delivered only to users who see low stories: %s", severities, lead["url"])
+        return "low_severity"
 
     logger.info(
         "Stored story with %d reports and %d analyses: %s",

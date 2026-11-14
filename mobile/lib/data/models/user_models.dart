@@ -5,10 +5,14 @@ class NotificationPreferences {
   final String impactAlertLevel;
   final bool volatilityAlerts;
 
+  /// Lowest story level in the feed: "medium", or "low" to see low stories too.
+  final String feedLevel;
+
   const NotificationPreferences({
     this.impactAlerts = true,
     this.impactAlertLevel = 'high',
     this.volatilityAlerts = true,
+    this.feedLevel = 'medium',
   });
 
   factory NotificationPreferences.fromJson(Map<String, dynamic> json) =>
@@ -16,17 +20,20 @@ class NotificationPreferences {
         impactAlerts: json['impact_alerts'] as bool? ?? true,
         impactAlertLevel: json['impact_alert_level'] as String? ?? 'high',
         volatilityAlerts: json['volatility_alerts'] as bool? ?? true,
+        feedLevel: json['feed_level'] as String? ?? 'medium',
       );
 
   NotificationPreferences copyWith({
     bool? impactAlerts,
     String? impactAlertLevel,
     bool? volatilityAlerts,
+    String? feedLevel,
   }) =>
       NotificationPreferences(
         impactAlerts: impactAlerts ?? this.impactAlerts,
         impactAlertLevel: impactAlertLevel ?? this.impactAlertLevel,
         volatilityAlerts: volatilityAlerts ?? this.volatilityAlerts,
+        feedLevel: feedLevel ?? this.feedLevel,
       );
 }
 

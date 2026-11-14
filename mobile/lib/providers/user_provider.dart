@@ -78,6 +78,7 @@ class UserNotifier extends StateNotifier<UserState> {
     bool? impactAlerts,
     String? impactAlertLevel,
     bool? volatilityAlerts,
+    String? feedLevel,
     String? aiProvider,
   }) async {
     state = state.copyWith(isUpdating: true, clearError: true);
@@ -87,6 +88,7 @@ class UserNotifier extends StateNotifier<UserState> {
         impactAlerts: impactAlerts,
         impactAlertLevel: impactAlertLevel,
         volatilityAlerts: volatilityAlerts,
+        feedLevel: feedLevel,
         aiProvider: aiProvider,
       );
       state = state.copyWith(profile: updated, isUpdating: false);
