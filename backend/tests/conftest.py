@@ -8,6 +8,7 @@ from app.core.rate_limit import (
     login_limiter,
     model_test_limiter,
     source_test_limiter,
+    topic_check_limiter,
 )
 from app.main import app
 from app.dependencies import get_current_user, get_db
@@ -23,7 +24,7 @@ def chain_mock(data, count=None):
     m.execute.return_value = result
     for method in [
         "select", "eq", "in_", "order", "range", "upsert",
-        "insert", "update", "delete", "not_", "gte", "lte", "neq", "is_",
+        "insert", "update", "delete", "not_", "gte", "lte", "lt", "neq", "is_", "ilike", "limit",
     ]:
         getattr(m, method).return_value = m
     return m
@@ -101,8 +102,19 @@ def snap_http():
 
 
 @pytest.fixture(autouse=True)
+def snap_topics_http():
+    """Topic matching and the topic gate call Snap too; the same guard applies."""
+    with patch("app.services.topic_matching.requests") as mock_requests:
+        mock_requests.post.side_effect = AssertionError("unscripted Snap call")
+        yield mock_requests
+
+
+@pytest.fixture(autouse=True)
 def _reset_rate_limits():
-    for limiter in (login_limiter, email_limiter, source_test_limiter, model_test_limiter, asset_search_limiter):
+    for limiter in (
+        login_limiter, email_limiter, source_test_limiter, model_test_limiter, asset_search_limiter,
+        topic_check_limiter,
+    ):
         limiter.reset()
 
 

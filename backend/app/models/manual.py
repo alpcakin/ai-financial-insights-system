@@ -13,6 +13,8 @@ class ManualSettingsResponse(BaseModel):
     manual_enabled: bool
     grouping_enabled: bool
     selected_model_id: str | None
+    # The user's model that matches topics; None means Snap.
+    topic_model_id: str | None
     can_store_keys: bool
 
 
@@ -21,6 +23,8 @@ class UpdateManualSettingsRequest(BaseModel):
     manual_enabled: bool | None = None
     grouping_enabled: bool | None = None
     selected_model_id: UUID | None = None
+    # Sending null switches topic matching back to Snap; leaving it out changes nothing.
+    topic_model_id: UUID | None = None
 
 
 class SourceResponse(BaseModel):

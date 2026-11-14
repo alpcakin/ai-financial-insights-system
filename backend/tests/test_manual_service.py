@@ -286,6 +286,7 @@ def test_defaults_are_package_on_manual_off_grouping_off():
         "manual_enabled": False,
         "grouping_enabled": False,
         "selected_model_id": None,
+        "topic_model_id": None,
         "can_store_keys": True,
     }
 
@@ -310,3 +311,32 @@ def test_another_users_baseline_is_left_alone(db):
     theirs = _add_source(db, user={"id": "u2"})
     manual_service.update_settings(db, USER, UpdateManualSettingsRequest(manual_enabled=True))
     assert not db.rows("user_sources", id=theirs["id"])[0].get("needs_baseline")
+
+
+# ── Topic model (journal 2.71) ───────────────────────────────────────────────
+
+def test_a_model_can_match_topics_and_null_hands_them_back_to_snap(db):
+    model = _add_model(db)
+    db.rows("user_models", id=model["id"])[0]["id"] = "00000000-0000-0000-0000-00000000000a"
+    picked = manual_service.update_settings(
+        db, USER, UpdateManualSettingsRequest(topic_model_id="00000000-0000-0000-0000-00000000000a"),
+    )
+    assert picked["topic_model_id"] == "00000000-0000-0000-0000-00000000000a"
+    assert db.rows("users", id="u1")[0]["manual_topic_model_id"] == "00000000-0000-0000-0000-00000000000a"
+
+    back = manual_service.update_settings(db, USER, UpdateManualSettingsRequest.model_validate({"topic_model_id": None}))
+    assert back["topic_model_id"] is None
+    assert db.rows("users", id="u1")[0]["manual_topic_model_id"] is None
+
+
+def test_leaving_the_topic_model_out_changes_nothing(db):
+    user = {**USER, "manual_topic_model_id": "m-keep"}
+    result = manual_service.update_settings(db, user, UpdateManualSettingsRequest(grouping_enabled=True))
+    assert result["topic_model_id"] == "m-keep"
+
+
+def test_someone_elses_model_cannot_match_my_topics(db):
+    theirs = _add_model(db, user={"id": "u2"})
+    db.rows("user_models", id=theirs["id"])[0]["id"] = "00000000-0000-0000-0000-00000000000b"
+    request = UpdateManualSettingsRequest(topic_model_id="00000000-0000-0000-0000-00000000000b")
+    assert _status(lambda: manual_service.update_settings(db, USER, request)) == 404

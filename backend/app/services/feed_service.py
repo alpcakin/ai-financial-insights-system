@@ -22,38 +22,12 @@ ANALYSIS_FIELDS = (
 )
 
 
-def _match_users(
-    db: Client,
-    related_assets: list[str],
-    related_categories: list[str],
-    only_user: str | None = None,
-) -> set[str]:
-    """Users whose portfolio, watchlist or followed topics overlap one analysis."""
-    if not related_assets and not related_categories:
+def _asset_users(db: Client, related_assets: list[str], only_user: str | None = None) -> set[str]:
+    """Users whose portfolio or watchlist holds an asset of one analysis."""
+    if not related_assets:
         return set()
-
-    user_ids: set[str] = set()
-
-    if related_assets:
-        pairs = tracked_assets(db, user_ids=[only_user] if only_user else None, symbols=related_assets)
-        user_ids.update(user_id for user_id, _ in pairs)
-
-    if related_categories:
-        cat_result = db.table("categories").select("id, parent_id").in_("name", related_categories).execute()
-        category_ids = []
-        for row in cat_result.data:
-            category_ids.append(row["id"])
-            if row.get("parent_id"):
-                category_ids.append(row["parent_id"])
-
-        if category_ids:
-            query = db.table("followed_topics").select("user_id").in_("category_id", category_ids)
-            if only_user:
-                query = query.eq("user_id", only_user)
-            for row in query.execute().data:
-                user_ids.add(row["user_id"])
-
-    return user_ids
+    pairs = tracked_assets(db, user_ids=[only_user] if only_user else None, symbols=related_assets)
+    return {user_id for user_id, _ in pairs}
 
 
 def _fetch_user_providers(db: Client, user_ids: set[str]) -> dict[str, str | None]:
@@ -94,22 +68,27 @@ def distribute_article(
     article_id: str,
     analyses: list[dict],
     default_provider: str | None,
+    topic_users: dict[str, set[str]] | None = None,
 ) -> dict[str, set[str]]:
     """Assign an article to users, each through their chosen provider's analysis.
 
     ``analyses`` are the stored rows for this article (one per provider, each
-    with an ``id``). Returns a mapping of analysis id to the users who got it.
+    with an ``id``). ``topic_users`` maps users following a matched topic to
+    those topics; a topic match counts with every qualifying analysis. Users who
+    already have the article keep their entry, so a story can be distributed
+    again once its topics arrive late. Returns a mapping of analysis id to the
+    users who got it now.
     """
+    topic_users = topic_users or {}
     qualifying = [a for a in analyses if qualifies(a)]
     if not qualifying:
         return {}
 
     by_provider = {a["provider"]: a for a in qualifying}
-    matched_by_provider: dict[str, set[str]] = {}
-    for provider, analysis in by_provider.items():
-        matched_by_provider[provider] = _match_users(
-            db, analysis.get("related_assets") or [], analysis.get("related_categories") or []
-        )
+    matched_by_provider: dict[str, set[str]] = {
+        provider: _asset_users(db, analysis.get("related_assets") or []) | set(topic_users)
+        for provider, analysis in by_provider.items()
+    }
 
     all_users: set[str] = set()
     for users in matched_by_provider.values():
@@ -136,21 +115,25 @@ def distribute_article(
         if chosen is None:
             continue
         analysis_id = by_provider[chosen]["id"]
-        assignments.setdefault(analysis_id, set()).add(user_id)
         rows.append({
             "user_id": user_id,
             "article_id": article_id,
             "analysis_id": analysis_id,
             # Stored, not derived on read: the user may change their model later.
             "is_fallback": chosen != effective_provider({"ai_provider": user_provider}),
+            "topic_ids": sorted(topic_users.get(user_id, ())),
         })
 
     if rows:
-        db.table("user_news_feed").upsert(rows, on_conflict="user_id,article_id").execute()
+        inserted = db.table("user_news_feed").upsert(
+            rows, on_conflict="user_id,article_id", ignore_duplicates=True,
+        ).execute().data or []
+        for row in inserted:
+            assignments.setdefault(row["analysis_id"], set()).add(row["user_id"])
 
     logger.info(
         "Distributed article %s to %d users across %d analyses",
-        article_id, len(rows), len(assignments),
+        article_id, sum(len(users) for users in assignments.values()), len(assignments),
     )
     return assignments
 
@@ -161,14 +144,15 @@ def distribute_owned_article(
     analyses: list[dict],
     owner_id: str,
     selected_model: str | None,
+    topic_ids: set[str] = frozenset(),
 ) -> dict[str, set[str]]:
     """Give a manual-mode story to its owner, and no one else, through their chosen
-    model. It follows the package's rule, but falls back only among their own models."""
+    model. It follows the package's rule, but falls back only among their own models.
+    ``topic_ids`` are the owner's followed topics that matched the story."""
     by_provider = {a["provider"]: a for a in analyses if qualifies(a)}
     matched_by_provider = {
-        provider: _match_users(
-            db, analysis.get("related_assets") or [], analysis.get("related_categories") or [], only_user=owner_id
-        )
+        provider: _asset_users(db, analysis.get("related_assets") or [], only_user=owner_id)
+        | ({owner_id} if topic_ids else set())
         for provider, analysis in by_provider.items()
     }
     analyzed_providers = {a["provider"] for a in analyses}
@@ -177,13 +161,14 @@ def distribute_owned_article(
         return {}
 
     analysis_id = by_provider[chosen]["id"]
-    db.table("user_news_feed").upsert({
+    inserted = db.table("user_news_feed").upsert({
         "user_id": owner_id,
         "article_id": article_id,
         "analysis_id": analysis_id,
         "is_fallback": chosen != selected_model,
-    }, on_conflict="user_id,article_id").execute()
-    return {analysis_id: {owner_id}}
+        "topic_ids": sorted(topic_ids),
+    }, on_conflict="user_id,article_id", ignore_duplicates=True).execute().data
+    return {analysis_id: {owner_id}} if inserted else {}
 
 
 def deliver_unanalyzed(db: Client, article_id: str, owner_id: str) -> None:
@@ -210,13 +195,44 @@ def _merge_feed_row(row: dict) -> dict:
     article["analyzed_by_name"] = (analysis.get("provider_label") or display_name_for(provider)) if provider else None
     article["is_fallback"] = row.get("is_fallback", False)
     article["read"] = row["read"]
+    article["topic_ids"] = row.get("topic_ids") or []
     article.update(_scope_fields(article.pop("owner_id", None), bool(analysis)))
     return article
 
 
+def _in_chunks(db: Client, table: str, columns: str, column: str, values: list, **eq):
+    rows = []
+    for start in range(0, len(values), 100):
+        query = db.table(table).select(columns).in_(column, values[start:start + 100])
+        for key, value in eq.items():
+            query = query.eq(key, value)
+        rows.extend(query.execute().data)
+    return rows
+
+
+def _attach_topics(db: Client, articles: list[dict]) -> None:
+    """``related_categories``: the categories Snap matched, or, for stories stored
+    before Snap did (journal 2.71), the ones their analysis named. ``matched_topics``:
+    the reader's followed topics that brought the story, kept from its delivery."""
+    if not articles:
+        return
+    matches = _in_chunks(db, "article_topics", "article_id, topic_id", "article_id",
+                         [a["id"] for a in articles], matched=True)
+    by_article: dict[str, list[str]] = {}
+    for row in matches:
+        by_article.setdefault(row["article_id"], []).append(row["topic_id"])
+    wanted = list({t for ids in by_article.values() for t in ids} | {t for a in articles for t in a.get("topic_ids", ())})
+    names = {row["id"]: row for row in _in_chunks(db, "categories", "id, name, kind", "id", wanted)}
+    for article in articles:
+        matched = [names[t] for t in by_article.get(article["id"], ()) if t in names]
+        if matched:
+            article["related_categories"] = sorted(r["name"] for r in matched if r["kind"] == "category")
+        article["matched_topics"] = sorted(names[t]["name"] for t in article.pop("topic_ids", ()) if t in names)
+
+
 # Explicit article columns: articles also carry a 1536-dimension embedding.
 FEED_SELECT = (
-    "read, is_fallback, created_at, "
+    "read, is_fallback, created_at, topic_ids, "
     "articles(id, title, url, source, published_at, owner_id), article_analyses(*)"
 )
 
@@ -260,32 +276,32 @@ def get_feed(
             .limit(500)
             .execute()
         )
-        rows = [
-            r for r in result.data
-            if category in ((r.get("article_analyses") or {}).get("related_categories") or [])
-        ]
-        total = len(rows)
-        page = rows[offset: offset + limit]
-    else:
-        count_result = (
-            db.table("user_news_feed")
-            .select("id", count="exact")
-            .eq("user_id", user_id)
-            .execute()
-        )
-        total = count_result.count or 0
+        merged = [_merge_feed_row(r) for r in result.data]
+        _attach_topics(db, merged)
+        matching = [a for a in merged if category in (a.get("related_categories") or [])]
+        articles = matching[offset: offset + limit]
+        _attach_sources(db, articles)
+        return {"articles": articles, "total": len(matching), "offset": offset, "limit": limit}
 
-        page_result = (
-            db.table("user_news_feed")
-            .select(FEED_SELECT)
-            .eq("user_id", user_id)
-            .order("created_at", desc=True)
-            .range(offset, offset + limit - 1)
-            .execute()
-        )
-        page = page_result.data
+    count_result = (
+        db.table("user_news_feed")
+        .select("id", count="exact")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    total = count_result.count or 0
+
+    page = (
+        db.table("user_news_feed")
+        .select(FEED_SELECT)
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .range(offset, offset + limit - 1)
+        .execute()
+    ).data
 
     articles = [_merge_feed_row(r) for r in page]
+    _attach_topics(db, articles)
     _attach_sources(db, articles)
     return {"articles": articles, "total": total, "offset": offset, "limit": limit}
 
@@ -335,6 +351,7 @@ def get_asset_news(db: Client, user: dict, symbol: str, limit: int, offset: int)
             "is_fallback": not order or row["provider"] != order[0],
             **_scope_fields(row["owner_id"], True),
         })
+    _attach_topics(db, articles)
     _attach_sources(db, articles)
     return {"articles": articles, "total": rows[0]["total"] if rows else 0, "offset": offset, "limit": limit}
 

@@ -221,7 +221,7 @@ def test_mark_read_200(client, mock_db):
 
 def test_get_topics_200(client, mock_db):
     mock_db.table.side_effect = lambda name: chain_mock(
-        [{"id": "c1", "name": "Technology", "level": 1, "parent_id": None}]
+        [{"id": "c1", "name": "Technology", "level": 1, "parent_id": None, "kind": "category"}]
         if name == "categories"
         else []
     )
@@ -231,10 +231,30 @@ def test_get_topics_200(client, mock_db):
 
 def test_follow_topic_200(client, mock_db):
     mock_db.table.side_effect = lambda name: chain_mock(
-        [{"id": "c2", "level": 2}] if name == "categories" else []
+        [{"id": "c2", "level": 2, "kind": "category"}] if name == "categories" else []
     )
     r = client.post("/topics/c2/follow")
     assert r.status_code == 200
+
+
+def test_add_topic_201(client, mock_db):
+    banking = {"id": "c3", "name": "Banking", "level": 2, "parent_id": None, "kind": "category"}
+    mock_db.table.side_effect = lambda name: chain_mock([banking] if name == "categories" else [])
+    r = client.post("/topics", json={"name": "banking"})
+    assert r.status_code == 201
+    assert r.json()["id"] == "c3" and r.json()["followed"] is True
+
+
+def test_add_topic_without_a_name_422(client, mock_db):
+    assert client.post("/topics", json={"name": ""}).status_code == 422
+
+
+def test_search_topics_200(client, mock_db):
+    banking = {"id": "c3", "name": "Banking", "level": 2, "parent_id": None, "kind": "category"}
+    mock_db.table.side_effect = lambda name: chain_mock([banking] if name == "categories" else [])
+    r = client.get("/topics/search", params={"q": "bank"})
+    assert r.status_code == 200
+    assert [t["name"] for t in r.json()] == ["Banking"]
 
 
 def test_unfollow_topic_204(client, mock_db):

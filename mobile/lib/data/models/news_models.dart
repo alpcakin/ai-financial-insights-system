@@ -86,6 +86,9 @@ class FeedArticle {
   /// Every model of the user failed on this story, so it has no analysis.
   final bool analysisFailed;
 
+  /// The user's followed topics that brought the story to their feed.
+  final List<String> matchedTopics;
+
   const FeedArticle({
     required this.id,
     required this.title,
@@ -105,6 +108,7 @@ class FeedArticle {
     this.sources = const [],
     this.mode = 'package',
     this.analysisFailed = false,
+    this.matchedTopics = const [],
   });
 
   bool get isManual => mode == 'manual';
@@ -128,6 +132,7 @@ class FeedArticle {
         sources: sources,
         mode: mode,
         analysisFailed: analysisFailed,
+        matchedTopics: matchedTopics,
       );
 
   factory FeedArticle.fromJson(Map<String, dynamic> json) {
@@ -164,6 +169,7 @@ class FeedArticle {
           .toList(),
       mode: json['mode'] as String? ?? 'package',
       analysisFailed: json['analysis_failed'] as bool? ?? false,
+      matchedTopics: toStringList(json['matched_topics']),
     );
   }
 }

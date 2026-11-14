@@ -49,6 +49,8 @@ class ManualRepository {
     bool? manualEnabled,
     bool? groupingEnabled,
     String? selectedModelId,
+    bool setTopicModel = false,
+    String? topicModelId,
   }) async {
     final r = await http
         .patch(
@@ -59,6 +61,8 @@ class ManualRepository {
             if (manualEnabled != null) 'manual_enabled': manualEnabled,
             if (groupingEnabled != null) 'grouping_enabled': groupingEnabled,
             if (selectedModelId != null) 'selected_model_id': selectedModelId,
+            // null is sent on purpose: it hands topic matching back to Snap.
+            if (setTopicModel) 'topic_model_id': topicModelId,
           }),
         )
         .timeout(_timeout);

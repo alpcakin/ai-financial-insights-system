@@ -4,6 +4,9 @@ class ManualSettings {
   final bool groupingEnabled;
   final String? selectedModelId;
 
+  /// The user's model that matches topics; null means SubQ Snap.
+  final String? topicModelId;
+
   /// False when the server has no encryption key, so no API key can be stored.
   final bool canStoreKeys;
 
@@ -12,6 +15,7 @@ class ManualSettings {
     required this.manualEnabled,
     required this.groupingEnabled,
     this.selectedModelId,
+    this.topicModelId,
     required this.canStoreKeys,
   });
 
@@ -20,6 +24,7 @@ class ManualSettings {
         manualEnabled: json['manual_enabled'] as bool,
         groupingEnabled: json['grouping_enabled'] as bool,
         selectedModelId: json['selected_model_id'] as String?,
+        topicModelId: json['topic_model_id'] as String?,
         canStoreKeys: json['can_store_keys'] as bool,
       );
 }

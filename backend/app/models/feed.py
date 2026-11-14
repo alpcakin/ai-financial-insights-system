@@ -35,6 +35,8 @@ class FeedArticle(BaseModel):
     sources: list[ArticleSource] = []
     mode: str = "package"
     analysis_failed: bool = False
+    # The reader's followed topics that brought the story, kept from its delivery.
+    matched_topics: list[str] = []
 
 
 class FeedResponse(BaseModel):

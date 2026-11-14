@@ -1,9 +1,12 @@
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.services import ai_service
 from app.services.ai import ProviderRegistry, set_registry
 from app.services.dedup_service import Attachment, Story
+from app.services.story_topics import TopicMatch
 from app.tasks import news_tasks
 from tests.catalog import CATALOG, catalog_row
 from tests.conftest import FakeProvider, chain_mock
@@ -24,11 +27,17 @@ def _response(level="high", symbol="AAPL"):
         "summary": "Apple did well",
         "sentiment": "positive",
         "level": level,
-        "categories": ["Technology"],
         "impacted_assets": [
             {"symbol": symbol, "impact": "positive", "relevance": "subject", "level": level, "reason": "earnings"}
         ],
     })
+
+
+@pytest.fixture(autouse=True)
+def _no_topic_matches():
+    """Snap answers "nothing matched"; topic tests patch it again."""
+    with patch("app.tasks.news_tasks.match_story", return_value=TopicMatch([], "snap")):
+        yield
 
 
 def _pipeline_db():
@@ -36,13 +45,14 @@ def _pipeline_db():
     db = MagicMock()
     db.inserts = {}
     db.catalog = CATALOG
+    db.analyses = []
 
     def t(name):
         m = chain_mock([])
         if name == "portfolio":
             m.execute.return_value.data = [{"user_id": "u1", "asset_symbol": "AAPL"}]
         elif name == "categories":
-            m.execute.return_value.data = [{"name": "Technology"}]
+            m.execute.return_value.data = [{"id": "c-tech", "name": "Technology"}]
         elif name == "assets":
             m.execute.return_value.data = db.catalog
         elif name == "articles":
@@ -54,6 +64,8 @@ def _pipeline_db():
                 return chain_mock([{"id": f"art-{start + i + 1}", **r} for i, r in enumerate(rows)])
             m.insert.side_effect = insert
         elif name == "article_analyses":
+            m.execute.return_value.data = db.analyses
+
             def insert(rows):
                 db.inserts.setdefault("article_analyses", []).extend(rows)
                 return chain_mock([{"id": f"an-{r['provider']}", **r} for r in rows])
@@ -86,7 +98,7 @@ def test_cycle_stores_one_analysis_per_provider(mock_distribute, mock_alerts):
 
     result, db = _run([_article()])
 
-    assert result == {"processed": 1, "low_severity": 0, "failed": 0, "attached": 0}
+    assert result == {"processed": 1, "low_severity": 0, "failed": 0, "attached": 0, "late_topics": 0}
     [stored] = db.inserts["articles"]
     assert stored["url"] == "https://bloomberg.com/a"
     assert stored["description"] == "Strong quarter"
@@ -134,7 +146,7 @@ def test_low_severity_story_is_stored_but_not_distributed(mock_distribute):
 
     result, db = _run([_article()])
 
-    assert result == {"processed": 0, "low_severity": 1, "failed": 0, "attached": 0}
+    assert result == {"processed": 0, "low_severity": 1, "failed": 0, "attached": 0, "late_topics": 0}
     assert len(db.inserts["articles"]) == 1
     assert len(db.inserts["article_analyses"]) == 2
     mock_distribute.assert_not_called()
@@ -178,7 +190,7 @@ def test_same_cycle_reports_are_analyzed_together_and_stored_as_members(_distrib
 
     assert result["processed"] == 1
     assert provider.calls == 1
-    other_reports = spy.call_args.args[4]
+    other_reports = spy.call_args.args[3]
     assert other_reports == [{"source": "CNBC", "title": "Apple tops forecasts", "description": "Strong quarter"}]
 
     lead_row, member_row = db.inserts["articles"]
@@ -211,7 +223,7 @@ def test_report_of_a_stored_story_is_attached_without_analysis(mock_distribute):
 
     result, db = _run([late], stories=[], attachments=[Attachment(late, "lead-1", 0.88)])
 
-    assert result == {"processed": 0, "low_severity": 0, "failed": 0, "attached": 1}
+    assert result == {"processed": 0, "low_severity": 0, "failed": 0, "attached": 1, "late_topics": 0}
     [row] = db.inserts["articles"]
     assert row["duplicate_of"] == "lead-1"
     assert row["duplicate_similarity"] == 0.88
@@ -260,7 +272,9 @@ def test_cycle_leaves_inactive_assets_out_and_keeps_those_under_review(_distribu
     assert spy.call_args.kwargs["asset_pool"] == {"AAPL": "Apple Inc.", "TON-USD": "Toncoin"}
 
 
-def test_cycle_stops_early_when_nothing_is_new():
+@patch("app.tasks.news_tasks.pending_stories", return_value=[])
+@patch("app.tasks.news_tasks.question_sets", return_value=({}, {}))
+def test_cycle_stops_early_when_nothing_is_new(_questions, _pending):
     db = _pipeline_db()
     db.table.side_effect = lambda name: chain_mock([{"url": "https://bloomberg.com/a"}])
     set_registry(ProviderRegistry([FakeProvider("openai")], "openai"))
@@ -275,5 +289,89 @@ def test_cycle_aborts_without_providers(mock_fetch):
     set_registry(ProviderRegistry([], None))
     with patch("app.tasks.news_tasks.get_db", return_value=_pipeline_db()):
         result = news_tasks.process_news_cycle()
-    assert result == {"processed": 0, "low_severity": 0, "failed": 0, "attached": 0}
+    assert result == {"processed": 0, "low_severity": 0, "failed": 0, "attached": 0, "late_topics": 0}
     mock_fetch.assert_not_called()
+
+
+# ── Topics (journal 2.71) ────────────────────────────────────────────────────
+
+MATCH = TopicMatch([
+    {"topic_id": "c-tech", "probability": 0.9, "matched": True},
+    {"topic_id": "t-ny", "probability": 0.2, "matched": False},
+], "snap")
+
+
+@patch("app.tasks.news_tasks.generate_impact_alerts")
+@patch("app.tasks.news_tasks.distribute_article", return_value={})
+@patch("app.tasks.news_tasks.topic_followers", return_value={"u9": {"c-tech"}})
+@patch("app.tasks.news_tasks.store_match")
+def test_matched_topics_are_stored_and_their_followers_get_the_story(store, followers, distribute, _alerts):
+    set_registry(ProviderRegistry([FakeProvider("openai", [_response("high")])], "openai"))
+    with patch("app.tasks.news_tasks.match_story", return_value=MATCH) as match:
+        _run([_article()])
+    lead = match.call_args.args[0]
+    assert lead["url"] == "https://bloomberg.com/a"
+    store.assert_called_once()
+    assert store.call_args.args[1:] == ("art-1", MATCH)
+    followers.assert_called_once()
+    assert followers.call_args.args[1] == {"c-tech"}
+    assert distribute.call_args.args[4] == {"u9": {"c-tech"}}
+
+
+@patch("app.tasks.news_tasks.generate_impact_alerts")
+@patch("app.tasks.news_tasks.distribute_article", return_value={})
+@patch("app.tasks.news_tasks.store_match")
+def test_a_story_worth_showing_waits_for_its_topics_when_snap_fails(store, distribute, _alerts):
+    set_registry(ProviderRegistry([FakeProvider("openai", [_response("high")])], "openai"))
+    with patch("app.tasks.news_tasks.match_story", return_value=None):
+        result, db = _run([_article()])
+    assert result["processed"] == 1
+    assert db.inserts["articles"][0]["topics_pending_since"]
+    store.assert_not_called()
+    assert distribute.call_args.args[4] == {}
+
+
+@patch("app.tasks.news_tasks.distribute_article")
+def test_a_low_story_does_not_wait_for_its_topics(distribute):
+    set_registry(ProviderRegistry([FakeProvider("openai", [_response("low")])], "openai"))
+    with patch("app.tasks.news_tasks.match_story", return_value=None):
+        result, db = _run([_article()])
+    assert result["low_severity"] == 1
+    assert "topics_pending_since" not in db.inserts["articles"][0]
+    distribute.assert_not_called()
+
+
+@patch("app.tasks.news_tasks.generate_impact_alerts")
+@patch("app.tasks.news_tasks.distribute_article", return_value={"an-openai": {"u9"}})
+@patch("app.tasks.news_tasks.topic_followers", return_value={"u9": {"c-tech"}})
+@patch("app.tasks.news_tasks.clear_pending")
+@patch("app.tasks.news_tasks.store_match")
+def test_a_waiting_story_is_asked_again_and_delivered_without_a_new_analysis(store, clear, _followers, distribute, alerts):
+    provider = FakeProvider("openai")
+    set_registry(ProviderRegistry([provider], "openai"))
+    waiting = {"id": "old-1", "title": "t", "description": "d", "source": "s", "url": "u"}
+    db = _pipeline_db()
+    db.analyses = [{"id": "an-openai", "provider": "openai", "severity": 3, "asset_impacts": [{"symbol": "AAPL"}]}]
+    with patch("app.tasks.news_tasks.pending_stories", return_value=[waiting]), \
+            patch("app.tasks.news_tasks.match_story", return_value=MATCH):
+        result, _ = _run([], db=db)
+    assert result["late_topics"] == 1
+    assert provider.calls == 0
+    assert store.call_args.args[1:] == ("old-1", MATCH)
+    clear.assert_called_once()
+    assert distribute.call_args.args[1] == "old-1"
+    assert distribute.call_args.args[2] == db.analyses
+    assert distribute.call_args.args[4] == {"u9": {"c-tech"}}
+    alerts.assert_called_once()
+
+
+@patch("app.tasks.news_tasks.distribute_article")
+def test_asking_again_stops_at_the_first_failure(distribute):
+    set_registry(ProviderRegistry([FakeProvider("openai")], "openai"))
+    waiting = [{"id": f"old-{i}", "title": "t", "description": "d", "source": "s", "url": "u"} for i in range(3)]
+    with patch("app.tasks.news_tasks.pending_stories", return_value=waiting), \
+            patch("app.tasks.news_tasks.match_story", return_value=None) as match:
+        result, _ = _run([])
+    assert result["late_topics"] == 0
+    assert match.call_count == 1
+    distribute.assert_not_called()

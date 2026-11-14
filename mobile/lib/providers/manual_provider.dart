@@ -83,6 +83,12 @@ class ManualNotifier extends StateNotifier<ManualState> {
     state = state.copyWith(settings: settings);
   }
 
+  /// Picks the model that matches topics; null hands it back to SubQ Snap.
+  Future<void> setTopicModel(String token, String? modelId) async {
+    final settings = await _repository.updateSettings(token, setTopicModel: true, topicModelId: modelId);
+    state = state.copyWith(settings: settings);
+  }
+
   Future<void> addSource(String token, {required String url, String? name, required int intervalMinutes}) async {
     final source = await _repository.addSource(token, url: url, name: name, intervalMinutes: intervalMinutes);
     state = state.copyWith(sources: [...state.sources, source]);

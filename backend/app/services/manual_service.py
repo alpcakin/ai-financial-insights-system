@@ -38,7 +38,6 @@ _TEST_ARTICLE = {
     "title": "Apple reports record quarterly revenue on strong iPhone demand",
     "description": "Apple said revenue rose 8% from a year earlier, ahead of analyst estimates.",
     "asset_pool": {"AAPL": "Apple Inc."},
-    "category_list": ["Consumer Electronics"],
 }
 
 
@@ -78,6 +77,7 @@ def get_settings(user: dict) -> dict:
         "manual_enabled": user.get("manual_enabled", False),
         "grouping_enabled": user.get("manual_grouping", False),
         "selected_model_id": user.get("manual_model_id"),
+        "topic_model_id": user.get("manual_topic_model_id"),
         "can_store_keys": key_vault.is_available(),
     }
 
@@ -94,6 +94,11 @@ def update_settings(db: Client, user: dict, request: UpdateManualSettingsRequest
         selected = str(request.selected_model_id)
         _owned(db, "user_models", "id", user["id"], selected)
         updates["manual_model_id"] = selected
+    if "topic_model_id" in request.model_fields_set:
+        topic_model = str(request.topic_model_id) if request.topic_model_id else None
+        if topic_model:
+            _owned(db, "user_models", "id", user["id"], topic_model)
+        updates["manual_topic_model_id"] = topic_model
 
     if request.manual_enabled and not user.get("manual_enabled", False):
         _rebaseline_sources(db, user["id"])

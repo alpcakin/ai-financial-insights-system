@@ -8,6 +8,7 @@ import pytest
 
 from app.core import key_vault
 from app.core.config import settings
+from app.services.ai_service import TOPIC_SYSTEM_PROMPT
 from app.services.dedup_service import GroupingUnavailable
 from app.tasks import manual_tasks
 from app.tasks.manual_tasks import due_urls, process_manual_cycle
@@ -21,7 +22,7 @@ NOW = datetime.now(timezone.utc)
 
 def _answer(assets=("AAPL",), level="high"):
     return json.dumps({
-        "summary": "S", "sentiment": "positive", "level": level, "categories": ["Software"],
+        "summary": "S", "sentiment": "positive", "level": level,
         "impacted_assets": [
             {"symbol": s, "impact": "positive", "relevance": "subject", "magnitude": "major", "level": level, "reason": "r"}
             for s in assets
@@ -92,7 +93,7 @@ def world():
         portfolio=[{"user_id": "u1", "asset_symbol": "AAPL"}],
         watchlist=[],
         followed_topics=[],
-        categories=[{"id": "c1", "name": "Software", "level": 2, "parent_id": None}],
+        categories=[{"id": "c1", "name": "Software", "level": 2, "parent_id": None, "kind": "category"}],
         articles=[],
         article_analyses=[],
         user_news_feed=[],
@@ -571,3 +572,97 @@ def test_every_fetch_is_recorded_so_failing_feeds_wait_their_turn(world):
     world.fetch.reset_mock()
     process_manual_cycle()
     world.fetch.assert_not_called()
+
+
+# ── Topics (journal 2.71) ────────────────────────────────────────────────────
+
+SNAP = "app.services.story_topics.snap_probabilities"
+
+
+def _follow(world, user_id, topic_id, name):
+    if not world.db.rows("categories", id=topic_id):
+        world.db.add("categories", {"id": topic_id, "name": name, "level": None, "parent_id": None, "kind": "topic"})
+    world.db.add("followed_topics", {"user_id": user_id, "category_id": topic_id, "source": "manual"})
+
+
+class _TopicModel(FakeProvider):
+    """Analyzes like the others; answers topic questions with ``related`` keys, or fails when it is None."""
+
+    def __init__(self, name, related):
+        super().__init__(name, responses=[_answer()] * 50)
+        self.related = related
+        self.topic_calls = 0
+
+    def complete(self, system_prompt, user_prompt):
+        if system_prompt != TOPIC_SYSTEM_PROMPT:
+            return super().complete(system_prompt, user_prompt)
+        self.topic_calls += 1
+        if self.related is None:
+            raise RuntimeError("down")
+        return json.dumps({"related": self.related})
+
+
+def test_a_story_matching_a_followed_topic_reaches_the_owner_and_says_why(world):
+    world.db.tables["portfolio"] = []
+    _follow(world, "u1", "t-ny", "New York")
+    with patch(SNAP, return_value={"c1": 0.1, "t-ny": 0.8}) as snap:
+        world.run()
+    assert snap.call_args.args[1] == [{"c1": "Software"}, {"t-ny": "New York"}]
+    [entry] = world.db.rows("user_news_feed")
+    assert entry["topic_ids"] == ["t-ny"]
+    rows = {r["topic_id"]: r for r in world.db.rows("article_topics")}
+    assert rows["t-ny"]["matched"] is True and rows["c1"]["matched"] is False
+    assert rows["t-ny"]["matched_by"] == "snap" and rows["t-ny"]["probability"] == 0.8
+
+
+def test_snap_is_asked_only_about_the_owners_own_topics(world):
+    _add_user(world, "u2")
+    _follow(world, "u2", "t-secret", "Secret plan")
+    with patch(SNAP, return_value={"c1": 0.1}) as snap:
+        world.run()
+    asked = [call.args[1][1] for call in snap.call_args_list]
+    assert sorted(asked, key=len) == [{}, {"t-secret": "Secret plan"}]
+
+
+def test_the_users_own_topic_model_answers_instead_of_snap(world):
+    world.db.tables["portfolio"] = []
+    _follow(world, "u1", "t-ny", "New York")
+    world.db.rows("users")[0]["manual_topic_model_id"] = "u1-m2"
+    world.db.add("user_models", _model("u1", "m2"))
+    world.providers["u1-m2"] = _TopicModel("u1-m2", related=["t2"])
+    with patch(SNAP, side_effect=AssertionError("Snap was asked")):
+        world.run()
+    assert world.providers["u1-m2"].topic_calls == 1
+    rows = {r["topic_id"]: r for r in world.db.rows("article_topics")}
+    assert rows["t-ny"]["matched"] is True and rows["t-ny"]["matched_by"] == "u1-m2"
+    assert rows["t-ny"]["probability"] is None
+    assert world.db.rows("user_news_feed")[0]["topic_ids"] == ["t-ny"]
+
+
+def test_when_the_topic_model_fails_snap_answers(world):
+    _follow(world, "u1", "t-ny", "New York")
+    world.db.rows("users")[0]["manual_topic_model_id"] = "u1-m2"
+    world.db.add("user_models", _model("u1", "m2"))
+    world.providers["u1-m2"] = _TopicModel("u1-m2", related=None)
+    with patch(SNAP, return_value={"c1": 0.1, "t-ny": 0.9}) as snap:
+        world.run()
+    snap.assert_called_once()
+    assert {r["matched_by"] for r in world.db.rows("article_topics")} == {"snap"}
+
+
+def test_when_snap_is_down_the_story_waits_and_arrives_later_without_a_new_analysis(world):
+    world.db.tables["portfolio"] = []
+    _follow(world, "u1", "t-ny", "New York")
+    with patch(SNAP, return_value=None):
+        world.run()
+    [article] = world.db.rows("articles")
+    assert article["topics_pending_since"]
+    assert world.db.rows("user_news_feed") == []
+
+    world.feeds[URL] = _rss()
+    with patch(SNAP, return_value={"c1": 0.1, "t-ny": 0.9}):
+        world.run()
+    assert world.db.rows("articles")[0]["topics_pending_since"] is None
+    [entry] = world.db.rows("user_news_feed")
+    assert entry["topic_ids"] == ["t-ny"]
+    assert world.providers["u1-m1"].calls == 1

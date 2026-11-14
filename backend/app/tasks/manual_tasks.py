@@ -17,18 +17,26 @@ from cryptography.fernet import InvalidToken
 from app.core import key_vault
 from app.core.database import get_db
 from app.services.ai import AIProvider
-from app.services.ai_service import analyze_article_all
+from app.services.ai_service import qualifies
 from app.services.asset_catalog import analysis_pool
 from app.services.dedup_service import GroupingUnavailable, Story, assign_stories
 from app.services.feed_service import deliver_unanalyzed, distribute_owned_article
 from app.services.manual_feeds import fetch_feed, forget_other_feeds
 from app.services.news_service import filter_new_articles, parse_feed, read_feed_title
 from app.services.notification_service import batch_fetch_fcm_tokens, notify_alert_with_token
+from app.services.story_topics import (
+    clear_pending,
+    match_story,
+    pending_owners,
+    pending_stories,
+    question_sets,
+    store_match,
+    topic_followers,
+)
 from app.services.user_models import build_provider, classify_failure
 from app.tasks.news_tasks import (
-    MAX_REPORTS_PER_ANALYSIS,
+    analyze_with_topics,
     article_row,
-    report_of,
     send_impact_alerts,
     stop_requested,
     store_story,
@@ -135,20 +143,19 @@ def _stop_model(db, user_id: str, model_id: str, label: str, reason: str) -> Non
         notify_alert_with_token(db, inserted[0]["id"], token, "A model stopped", message)
 
 
-def _process_owned_story(db, user: dict, story: Story, providers: list[AIProvider], labels, asset_pool, category_list) -> bool:
+def _owner_topics(db, user_id: str, topics) -> set[str]:
+    return topic_followers(db, topics.matched_ids, only_user=user_id).get(user_id, set()) if topics else set()
+
+
+def _process_owned_story(
+    db, user: dict, story: Story, providers: list[AIProvider], labels, asset_pool, questions, topic_model,
+) -> bool:
     """Analyze, store and deliver one story. False means stop this user's turn: the
     story was not stored and comes back with the next fetch."""
     user_id = user["id"]
-    lead = story.lead
     failures: dict[str, Exception] = {}
-    analyses = analyze_article_all(
-        title=lead["title"],
-        description=lead["description"],
-        asset_pool=asset_pool,
-        category_list=category_list,
-        providers=list(providers),
-        other_reports=[report_of(m) for m in story.members[: MAX_REPORTS_PER_ANALYSIS - 1]] or None,
-        failures=failures,
+    analyses, topics = analyze_with_topics(
+        story, asset_pool, questions, providers=list(providers), failures=failures, topic_model=topic_model,
     )
 
     reasons = {name: classify_failure(error) for name, error in failures.items()}
@@ -163,22 +170,55 @@ def _process_owned_story(db, user: dict, story: Story, providers: list[AIProvide
 
     for name, analysis in analyses.items():
         analysis["provider_label"] = labels[name]
-    article_id, stored = store_story(db, story, analyses, owner_id=user_id)
+    worth_showing = any(qualifies(a) for a in analyses.values())
+    article_id, stored = store_story(
+        db, story, analyses, owner_id=user_id, topics_pending=topics is None and worth_showing,
+    )
     if article_id is None:
         return False
+    if topics is not None:
+        store_match(db, article_id, topics)
 
     if not analyses:
         logger.warning("Every model of user %s failed on one story", user_id)
         deliver_unanalyzed(db, article_id, user_id)
         return True
 
-    assignments = distribute_owned_article(db, article_id, stored, user_id, user.get("manual_model_id"))
+    assignments = distribute_owned_article(
+        db, article_id, stored, user_id, user.get("manual_model_id"), _owner_topics(db, user_id, topics),
+    )
     send_impact_alerts(db, article_id, stored, assignments)
     return True
 
 
+def _retry_pending_topics(db, user: dict, questions, topic_model) -> None:
+    """Ask again about the user's stories whose topics are missing; one that matches
+    a topic they follow reaches them now. Stops at the first failure."""
+    user_id = user["id"]
+    for article in pending_stories(db, owner_id=user_id):
+        topics = match_story(article, *questions, topic_model)
+        if topics is None:
+            return
+        store_match(db, article["id"], topics)
+        clear_pending(db, article["id"])
+        owner_topics = _owner_topics(db, user_id, topics)
+        if not owner_topics:
+            continue
+        stored = db.table("article_analyses").select("*").eq("article_id", article["id"]).execute().data
+        assignments = distribute_owned_article(
+            db, article["id"], stored, user_id, user.get("manual_model_id"), owner_topics,
+        )
+        send_impact_alerts(db, article["id"], stored, assignments)
+
+
 def _run_turn(db, user: dict, models: list[dict], articles: list[dict]) -> None:
     user_id = user["id"]
+    providers = _build_providers(db, models)
+    # Snap answers when the user picked no topic model, or the one they picked is stopped.
+    topic_model = next((p for p in providers if p.name == user.get("manual_topic_model_id")), None)
+    questions = question_sets(db, owner_id=user_id)
+    _retry_pending_topics(db, user, questions, topic_model)
+
     new = sorted(filter_new_articles(db, articles, owner_id=user_id), key=lambda a: a["published_at"])
     if not new:
         return
@@ -202,15 +242,13 @@ def _run_turn(db, user: dict, models: list[dict], articles: list[dict]) -> None:
             duplicate_similarity=attachment.similarity,
         )).execute()
 
-    providers = _build_providers(db, models)
     labels = {model["id"]: model["label"] for model in models}
     asset_pool = analysis_pool(db)
-    category_list = sorted(row["name"] for row in db.table("categories").select("name").eq("level", 2).execute().data)
 
     for story in stories:
         if stop_requested.is_set() or not providers:
             return
-        if not _process_owned_story(db, user, story, providers, labels, asset_pool, category_list):
+        if not _process_owned_story(db, user, story, providers, labels, asset_pool, questions, topic_model):
             logger.warning("User %s stops this turn, stories wait for the next fetch", user_id)
             return
 
@@ -241,7 +279,10 @@ def process_manual_cycle() -> dict:
         return summary
 
     db = get_db()
-    users = db.table("users").select("id, manual_grouping, manual_model_id").eq("manual_enabled", True).execute().data
+    users = (
+        db.table("users").select("id, manual_grouping, manual_model_id, manual_topic_model_id")
+        .eq("manual_enabled", True).execute().data
+    )
     if not users:
         forget_other_feeds(set())
         return summary
@@ -263,9 +304,7 @@ def process_manual_cycle() -> dict:
 
     now = datetime.now(timezone.utc)
     urls = sorted(due_urls(sources, now))
-    if not urls:
-        return summary
-    results = dict(zip(urls, _fetch_pool.map(_fetch, urls)))
+    results = dict(zip(urls, _fetch_pool.map(_fetch, urls))) if urls else {}
     summary["fetched"] = len(urls)
 
     articles_by_user: dict[str, dict[str, dict]] = {}
@@ -288,9 +327,13 @@ def process_manual_cycle() -> dict:
                 updates["last_error"] = "unreadable"
         db.table("user_sources").update(updates).eq("id", source["id"]).execute()
 
-    for user_id, articles in articles_by_user.items():
-        if articles and _start_turn(users_by_id[user_id], models_by_user[user_id], list(articles.values())):
+    # A user whose stories still wait for their topics gets a turn without new articles.
+    waiting = pending_owners(db, list(models_by_user))
+    for user_id in models_by_user:
+        articles = list(articles_by_user.get(user_id, {}).values())
+        if (articles or user_id in waiting) and _start_turn(users_by_id[user_id], models_by_user[user_id], articles):
             summary["turns"] += 1
 
-    logger.info("Manual cycle: %s", summary)
+    if summary["fetched"] or summary["turns"]:
+        logger.info("Manual cycle: %s", summary)
     return summary

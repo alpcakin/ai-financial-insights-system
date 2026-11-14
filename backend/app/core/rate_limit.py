@@ -37,3 +37,5 @@ source_test_limiter = RateLimiter(max_attempts=20, window_seconds=60 * 60)
 model_test_limiter = RateLimiter(max_attempts=10, window_seconds=60 * 60)
 # Every search is a request to Yahoo from the server's address, which prices and the asset check also use.
 asset_search_limiter = RateLimiter(max_attempts=30, window_seconds=10 * 60)
+# A new topic text costs one Snap request with the system's key.
+topic_check_limiter = RateLimiter(max_attempts=20, window_seconds=10 * 60)

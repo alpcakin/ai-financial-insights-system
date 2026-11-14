@@ -5,12 +5,16 @@ import '../data/repositories/topic_repository.dart';
 
 class TopicState {
   final List<TopicGroup> groups;
+
+  /// Topics users wrote that this user follows, in the order the server lists them.
+  final List<TopicCategory> ownTopics;
   final bool isLoading;
   final String? error;
   final Set<String> inFlight;
 
   const TopicState({
     this.groups = const [],
+    this.ownTopics = const [],
     this.isLoading = false,
     this.error,
     this.inFlight = const {},
@@ -18,6 +22,7 @@ class TopicState {
 
   TopicState copyWith({
     List<TopicGroup>? groups,
+    List<TopicCategory>? ownTopics,
     bool? isLoading,
     String? error,
     bool clearError = false,
@@ -25,12 +30,15 @@ class TopicState {
   }) =>
       TopicState(
         groups: groups ?? this.groups,
+        ownTopics: ownTopics ?? this.ownTopics,
         isLoading: isLoading ?? this.isLoading,
         error: clearError ? null : error ?? this.error,
         inFlight: inFlight ?? this.inFlight,
       );
 
-  int get followedCount => groups.fold(0, (acc, g) {
+  int get followedCount =>
+      ownTopics.length +
+      groups.fold(0, (acc, g) {
         int n = g.parent.followed ? 1 : 0;
         for (final c in g.children) {
           if (c.followed) n++;
@@ -48,22 +56,23 @@ class TopicNotifier extends StateNotifier<TopicState> {
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final cats = await _repo.getTopics(token);
-      state = state.copyWith(groups: _group(cats), isLoading: false);
+      state = state.copyWith(
+        groups: _group(cats),
+        ownTopics: cats.where((c) => c.isOwnTopic).toList(),
+        isLoading: false,
+      );
     } catch (e) {
       state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
 
+  /// Follows or unfollows. An own topic leaves the list when it is unfollowed.
   Future<void> toggle(String token, TopicCategory category) async {
     if (state.inFlight.contains(category.id)) return;
 
     final wasFollowed = category.followed;
-    final newInFlight = {...state.inFlight, category.id};
-
-    state = state.copyWith(
-      groups: _updateCategoryInGroups(state.groups, category.id, !wasFollowed),
-      inFlight: newInFlight,
-    );
+    state = _apply(category.copyWith(followed: !wasFollowed))
+        .copyWith(inFlight: {...state.inFlight, category.id}, clearError: true);
 
     try {
       if (wasFollowed) {
@@ -71,15 +80,44 @@ class TopicNotifier extends StateNotifier<TopicState> {
       } else {
         await _repo.followTopic(token, category.id);
       }
+    } on TopicException catch (e) {
+      state = _apply(category).copyWith(error: e.message);
     } catch (_) {
-      state = state.copyWith(
-        groups: _updateCategoryInGroups(state.groups, category.id, wasFollowed),
-        error: wasFollowed ? 'Failed to unfollow' : 'Failed to follow',
-      );
+      state = _apply(category).copyWith(error: wasFollowed ? 'Failed to unfollow' : 'Failed to follow');
     } finally {
       final updated = {...state.inFlight}..remove(category.id);
       state = state.copyWith(inFlight: updated);
     }
+  }
+
+  /// Follows a topic by name. Returns the message to show when it was not added.
+  Future<String?> addTopic(String token, String name) async {
+    try {
+      final topic = await _repo.addTopic(token, name);
+      state = _apply(topic).copyWith(clearError: true);
+      return null;
+    } on TopicException catch (e) {
+      return e.message;
+    } catch (_) {
+      return 'This topic could not be added. Please try again.';
+    }
+  }
+
+  /// Existing categories and topics that contain the text, to pick from before adding.
+  Future<List<TopicCategory>> search(String token, String query) async {
+    try {
+      return await _repo.searchTopics(token, query);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  TopicState _apply(TopicCategory topic) {
+    if (topic.isOwnTopic) {
+      final others = state.ownTopics.where((t) => t.id != topic.id).toList();
+      return state.copyWith(ownTopics: topic.followed ? [...others, topic] : others);
+    }
+    return state.copyWith(groups: _updateCategoryInGroups(state.groups, topic.id, topic.followed));
   }
 
   List<TopicGroup> _updateCategoryInGroups(

@@ -175,6 +175,33 @@ class _ManualModeScreenState extends ConsumerState<ManualModeScreen> {
                         'account. Your feed shows the one you pick; open an article to compare the others.')
                   else
                     ...state.models.map((m) => _modelTile(m, settings.selectedModelId)),
+                  _heading('TOPIC MATCHING'),
+                  _card(Column(
+                    children: [
+                      _topicMatcherTile(
+                        'SubQ Snap',
+                        'Our measured system, on our key, only on your own articles.',
+                        selected: settings.topicModelId == null,
+                        onTap: () => _notifier.setTopicModel(_token, null),
+                      ),
+                      ...state.models.map((m) => Column(
+                            children: [
+                              const Divider(height: 1, color: _line),
+                              _topicMatcherTile(
+                                m.label,
+                                'One more call per article, on your account.',
+                                selected: settings.topicModelId == m.id,
+                                onTap: () => _notifier.setTopicModel(_token, m.id),
+                              ),
+                            ],
+                          )),
+                    ],
+                  )),
+                  _note(
+                    'Decides which categories and topics of yours a new article relates to. Snap was '
+                    'measured on our sources; a model of yours was not. If your model fails on an '
+                    'article, Snap answers for it.',
+                  ),
                 ],
               ),
             ),
@@ -228,6 +255,35 @@ class _ManualModeScreenState extends ConsumerState<ManualModeScreen> {
                   await _run(() => _notifier.deleteSource(_token, source.id));
                 }
               },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _topicMatcherTile(String title, String subtitle, {required bool selected, required Future<void> Function() onTap}) {
+    return InkWell(
+      onTap: selected ? null : () => _run(onTap),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        child: Row(
+          children: [
+            Icon(
+              selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+              size: 20,
+              color: selected ? _ink : _faint,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: _ink)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: GoogleFonts.inter(fontSize: 12, color: _muted)),
+                ],
+              ),
             ),
           ],
         ),

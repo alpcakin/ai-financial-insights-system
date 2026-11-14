@@ -29,12 +29,21 @@ Every `NEWS_FETCH_INTERVAL_MINUTES` (15 is a good value) the backend runs one cy
 
 1. **Fetch** (`news_service.py`): the feeds in `FEEDS` are read with conditional requests, so an unchanged feed costs a 304. Items older than 24 hours, sponsored items and non-web links are dropped; URLs are normalized so the same article reached through two feeds is seen once.
 2. **Group** (`dedup_service.py`): each new article is embedded (`text-embedding-3-small`) and compared with the first article ("lead") of every stored story, and with stories started earlier in the same cycle. All leads at or above `DEDUP_CANDIDATE_THRESHOLD` (0.50) whose publication time is within `DEDUP_WINDOW_HOURS` (48) of the new article go to SubQ Snap (`subq-snap-1.1`, key in `SUBQ_API_KEY`). Each candidate is a separate request that returns the probability of the same event; the highest one at or above `DEDUP_MATCH_PROBABILITY` (0.936) joins the story, and a failed request counts as "not the same". Similarity alone never joins a story: recurring reports such as daily roundups read almost the same from one day to the next. Users' own API keys are never used here; manual mode can only turn this step on or off.
-3. **Analyze**: a new story is analyzed once by every provider. Reports of it that arrived in the same cycle go into the same prompt. Reports that arrive later are attached as extra sources: no new analysis, no new notification.
-4. **Distribute**: stories rated medium or above reach users through their portfolio and followed topics. Stories below that are stored but not shown.
+3. **Analyze**: a new story is analyzed once by every provider. Reports of it that arrived in the same cycle go into the same prompt. Reports that arrive later are attached as extra sources: no new analysis, no new notification. At the same time SubQ Snap decides which categories and followed topics the story relates to (see Topics).
+4. **Distribute**: stories rated medium or above reach users through their portfolio, watchlist and followed topics. Stories below that are stored but not shown.
 
 The feed returns every outlet that reported a story (`sources`), and `GET /feed/sources` lists the feeds for the app's News Sources screen.
 
 Once a day, feed entries and alerts older than `RETENTION_DAYS` (30) are deleted, together with stories no feed entry points to any more (`purge_old_data`, migrations 015 and 019).
+
+## Topics
+
+Categories are not in the analysis prompt. For every new story, SubQ Snap answers one yes/no question per topic, "Is this news article related to the topic ...?", with no further definition: how wide a topic is comes from its name ("New York" against "New York elections"). The 33 fixed categories go in one request, the topics users follow in requests of their own, and every request ends with a fixed question whose answer is ignored, because Snap inflates the last question of a request. A topic matches at `TOPIC_MATCH_THRESHOLD` (0.5). The question, the layout and the threshold come from the topic test (`DEVELOPMENT_JOURNAL.md` 2.71); `app/services/topic_matching.py` and `story_topics.py`.
+
+- Every asked topic is stored with its probability (`article_topics`); a feed entry keeps the followed topics that brought the story (`topic_ids`), shown on the card.
+- When Snap cannot answer, the story is stored and delivered by its assets, and later cycles ask Snap again, without analyzing it again, for up to 24 hours.
+- A user adds a topic by name (`POST /topics`). An existing category or topic is followed as it is; existing ones are suggested while typing (`GET /topics/search`). A new text first goes through one Snap request that rejects instructions and offensive text; the answer is kept per text, so the same text is never asked twice. Up to 10 own topics per user; at most 2 to 40 letters, digits, spaces and `& + - . , ' ( ) /`.
+- In manual mode Snap is asked about the 33 categories and the user's own topics only, on the user's own stories. The user can pick one of their models for this instead (`topic_model_id` in `/manual/settings`); it gets one shared prompt in `ai_service.py`, and Snap answers when it fails.
 
 ## Asset news
 
@@ -154,5 +163,6 @@ Run the migration files in order against your Supabase project. The number prefi
 | `025_manual_mode.sql` | manual mode: mode settings on users, `user_sources`, `user_models`, `articles.owner_id` with one URL per workspace, `provider_label`, `model_stopped` alerts; `match_story_leads` and `asset_news` scoped to a workspace (apply with the backend stopped) |
 | `026_asset_catalog.sql` | the asset catalog moves from code to the `assets` table with the 148 assets; `rename_asset`; `asset_news` also searches an asset's previous symbols (apply with the backend stopped) |
 | `027_asset_added_by.sql` | `assets.added_by`: who added an asset to the catalog |
+| `028_topics.sql` | topics: `categories.kind` (fixed category or user topic; level-3 categories become topics), `topic_checks`, `article_topics`, `articles.topics_pending_since`, `user_news_feed.topic_ids`, `users.manual_topic_model_id` (apply before starting the new backend) |
 
 Row-level security is enabled on every user-owned table. The backend connects with the service role key and is therefore not restricted by those policies; access control is enforced in the API layer through JWT authentication. RLS exists as a second line of defence so that a leaked anon key, or any client talking to Supabase directly, can only reach the rows of the authenticated user.

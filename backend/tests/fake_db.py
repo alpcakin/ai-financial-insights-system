@@ -4,6 +4,7 @@ The pipeline's promise that one user's data never reaches another is about which
 rows a query touches, so these tests need the filters to work, not to be mocked.
 """
 
+import re
 import uuid
 from types import SimpleNamespace
 
@@ -31,7 +32,7 @@ class _Query:
         self._columns: list[str] | None = None
         self._action = "select"
         self._payload = None
-        self._order: tuple[str, bool] | None = None
+        self._order: list[tuple[str, bool]] = []
         self._on_conflict: list[str] = []
         self._ignore_duplicates = False
 
@@ -53,8 +54,21 @@ class _Query:
         self._filters.append(lambda r: r.get(column) is None)
         return self
 
+    def lt(self, column, value):
+        self._filters.append(lambda r: r.get(column) is not None and r[column] < value)
+        return self
+
+    def gte(self, column, value):
+        self._filters.append(lambda r: r.get(column) is not None and r[column] >= value)
+        return self
+
+    def ilike(self, column, pattern):
+        regex = re.compile("^" + ".*".join(re.escape(part) for part in pattern.split("%")) + "$", re.IGNORECASE)
+        self._filters.append(lambda r: r.get(column) is not None and bool(regex.match(r[column])))
+        return self
+
     def order(self, column, desc=False):
-        self._order = (column, desc)
+        self._order.append((column, desc))
         return self
 
     def limit(self, _):
@@ -103,8 +117,8 @@ class _Query:
             data = matches
         else:
             data = matches
-            if self._order:
-                data = sorted(data, key=lambda r: r.get(self._order[0]) or "", reverse=self._order[1])
+            for column, desc in reversed(self._order):
+                data = sorted(data, key=lambda r: (r.get(column) is not None, r.get(column) or ""), reverse=desc)
             if self._columns is not None:
                 data = [{c: r.get(c) for c in self._columns} for r in data]
             else:

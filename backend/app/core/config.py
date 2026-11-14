@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     subq_api_key: str = ""
     snap_model: str = "subq-snap-1.1"
     dedup_match_probability: float = 0.936
+    # Topic matching (app.services.topic_matching): a category or user topic
+    # matches a story when Snap's probability reaches this. Chosen by the author
+    # on the topic test, where it kept recall at 0.92-0.95 (journal 2.71).
+    topic_match_threshold: float = 0.5
 
     # Feed entries, alerts and stories older than this are deleted once a
     # day (app.services.retention_service); 0 disables the cleanup.

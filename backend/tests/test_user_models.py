@@ -107,7 +107,7 @@ def test_a_private_providers_error_text_is_never_logged(caplog, failure):
     provider.private = True
     failures = {}
     with caplog.at_level(logging.DEBUG):
-        assert analyze_article("t", "d", [], [], provider=provider, failures=failures) is None
+        assert analyze_article("t", "d", [], provider=provider, failures=failures) is None
     assert SECRET not in caplog.text
     assert failures["m1"] is failure
 
@@ -116,14 +116,14 @@ def test_a_private_providers_log_keeps_the_type_and_status(caplog):
     provider = FakeProvider("m1", error=_error("AuthenticationError", status_code=401))
     provider.private = True
     with caplog.at_level(logging.ERROR):
-        analyze_article("t", "d", [], [], provider=provider)
+        analyze_article("t", "d", [], provider=provider)
     assert "AuthenticationError (status 401)" in caplog.text
 
 
 def test_a_system_providers_error_is_still_logged_in_full(caplog):
     provider = FakeProvider("openai", error=_error(text="the details"))
     with caplog.at_level(logging.ERROR):
-        analyze_article("t", "d", [], [], provider=provider)
+        analyze_article("t", "d", [], provider=provider)
     assert "the details" in caplog.text
 
 

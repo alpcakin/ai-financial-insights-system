@@ -140,10 +140,14 @@ class ArticleCard extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 12),
-              Row(
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   if (article.severity != null)
                     Container(
+                      margin: const EdgeInsets.only(right: 2),
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
                         color: severityColor(article.severity).withAlpha(15),
@@ -159,10 +163,8 @@ class ArticleCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                  const SizedBox(width: 6),
                   ...article.relatedAssets.take(3).map(
                     (sym) => Container(
-                      margin: const EdgeInsets.only(right: 4),
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF1F5F9),
@@ -178,10 +180,51 @@ class ArticleCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  ...article.matchedTopics.take(2).map((topic) => _TopicTag(topic)),
                 ],
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A followed topic that brought the story to the feed, told apart from asset symbols.
+class _TopicTag extends StatelessWidget {
+  final String name;
+
+  const _TopicTag(this.name);
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'In your feed because you follow $name',
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFEEF2FF),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.sell_outlined, size: 11, color: Color(0xFF4338CA)),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                name,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF4338CA),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

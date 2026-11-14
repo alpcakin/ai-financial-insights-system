@@ -46,6 +46,7 @@ FeedArticle _article({
   String mode = 'manual',
   bool failed = false,
   int? severity = 3,
+  List<String> topics = const [],
 }) =>
     FeedArticle(
       id: id,
@@ -64,6 +65,7 @@ FeedArticle _article({
       read: false,
       mode: mode,
       analysisFailed: failed,
+      matchedTopics: topics,
     );
 
 const _settings = ManualSettings(
@@ -116,6 +118,16 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('topic matching offers Snap and every model, Snap picked by default', (tester) async {
+      await _pump(tester, const ManualModeScreen(), overrides(const ManualState(settings: _settings, sources: _sources, models: _models)));
+      await tester.scrollUntilVisible(find.text('TOPIC MATCHING'), 200, scrollable: find.byType(Scrollable).first);
+      await tester.scrollUntilVisible(find.text('SubQ Snap'), 200, scrollable: find.byType(Scrollable).first);
+      final snapTile = find.ancestor(of: find.text('SubQ Snap'), matching: find.byType(Row)).first;
+      expect(find.descendant(of: snapTile, matching: find.byIcon(Icons.radio_button_checked_rounded)), findsOneWidget);
+      expect(find.text('One more call per article, on your account.'), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('warns when my sources is on without a source or a working model', (tester) async {
       await _pump(tester, const ManualModeScreen(), overrides(const ManualState(settings: _settings)));
       expect(find.text('My sources needs at least one source and one working model.'), findsOneWidget);
@@ -153,6 +165,15 @@ void main() {
       final article = _article(failed: true, analyzedBy: null, analyzedByName: null, summary: null, severity: null);
       await _pump(tester, Scaffold(body: ArticleCard(article: article, onTap: () {})), []);
       expect(find.text('Analysis failed: none of your models could analyze this article.'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('names the followed topics that brought the story, on a narrow phone', (tester) async {
+      final article = _article(topics: const ['A topic with a very long name that keeps going', 'Gold', 'Third']);
+      await _pump(tester, Scaffold(body: ArticleCard(article: article, onTap: () {})), []);
+      expect(find.text('Gold'), findsOneWidget);
+      expect(find.text('Third'), findsNothing);
+      expect(find.byIcon(Icons.sell_outlined), findsNWidgets(2));
       expect(tester.takeException(), isNull);
     });
 

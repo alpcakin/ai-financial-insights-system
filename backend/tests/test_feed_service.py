@@ -5,8 +5,9 @@ from fastapi import HTTPException
 
 from app.services.feed_service import (
     FEED_SELECT,
+    _asset_users,
     _attach_sources,
-    _match_users,
+    _attach_topics,
     _merge_feed_row,
     choose_analysis,
     distribute_article,
@@ -55,6 +56,7 @@ def _db(portfolio=None, followed=None, categories=None, users=None, watchlist=No
         elif name == "user_news_feed":
             def upsert(rows, **kw):
                 db.upserts.extend(rows)
+                m.execute.return_value.data = rows
                 return m
             m.upsert.side_effect = upsert
         return m
@@ -63,30 +65,20 @@ def _db(portfolio=None, followed=None, categories=None, users=None, watchlist=No
     return db
 
 
-# ── _match_users ─────────────────────────────────────────────────────────────
+# ── _asset_users ─────────────────────────────────────────────────────────────
 
-def test_match_both_empty():
-    assert _match_users(make_db({}), [], []) == set()
+def test_asset_users_empty():
+    assert _asset_users(make_db({}), []) == set()
 
 
-def test_match_asset():
+def test_asset_users_portfolio():
     db = _db(portfolio=[{"user_id": "u1"}])
-    assert _match_users(db, ["AAPL"], []) == {"u1"}
+    assert _asset_users(db, ["AAPL"]) == {"u1"}
 
 
-def test_match_asset_on_watchlist():
+def test_asset_users_portfolio_and_watchlist():
     db = _db(portfolio=[{"user_id": "u1"}], watchlist=[{"user_id": "u2"}])
-    assert _match_users(db, ["AAPL"], []) == {"u1", "u2"}
-
-
-def test_match_category_level2():
-    db = _db(categories=[{"id": "c2", "parent_id": None}], followed=[{"user_id": "u1"}])
-    assert _match_users(db, [], ["Software"]) == {"u1"}
-
-
-def test_match_category_level1_parent():
-    db = _db(categories=[{"id": "c2", "parent_id": "c1"}], followed=[{"user_id": "u2"}])
-    assert _match_users(db, [], ["Software"]) == {"u2"}
+    assert _asset_users(db, ["AAPL"]) == {"u1", "u2"}
 
 
 # ── choose_analysis ──────────────────────────────────────────────────────────
@@ -545,3 +537,77 @@ def test_feed_row_of_the_package_stays_as_it_was():
 
 def test_feed_never_selects_embeddings():
     assert "embedding" not in FEED_SELECT and "owner_id" in FEED_SELECT
+
+
+# ── Topics (journal 2.71) ────────────────────────────────────────────────────
+
+def _topic_db(**tables):
+    return FakeDB(users=[
+        {"id": "u1", "ai_provider": "openai", "package_enabled": True},
+        {"id": "u2", "ai_provider": "gemini", "package_enabled": True},
+        {"id": "u3", "ai_provider": "openai", "package_enabled": False},
+    ], **tables)
+
+
+def test_topic_followers_get_the_story_with_the_topics_that_brought_it(registry):
+    db = _topic_db(portfolio=[{"user_id": "u1", "asset_symbol": "AAPL"}])
+    analyses = [_analysis("openai", assets=("AAPL",)), _analysis("gemini", assets=())]
+    result = distribute_article(db, "a1", analyses, "openai", {"u2": {"t-fed"}, "u3": {"t-fed"}})
+    assert result == {"an-openai": {"u1"}, "an-gemini": {"u2"}}
+    entries = {row["user_id"]: row for row in db.rows("user_news_feed")}
+    assert entries["u1"]["topic_ids"] == [] and entries["u2"]["topic_ids"] == ["t-fed"]
+    assert "u3" not in entries
+
+
+def test_a_topic_follower_whose_model_rated_the_story_low_does_not_get_it(registry):
+    db = _topic_db()
+    analyses = [_analysis("openai", assets=()), _analysis("gemini", assets=(), severity=1)]
+    assert distribute_article(db, "a1", analyses, "openai", {"u2": {"t-fed"}}) == {}
+
+
+def test_late_topics_reach_only_the_users_who_did_not_have_the_story(registry):
+    db = _topic_db(portfolio=[{"user_id": "u1", "asset_symbol": "AAPL"}])
+    analyses = [_analysis("openai")]
+    distribute_article(db, "a1", analyses, "openai")
+    db.rows("user_news_feed", user_id="u1")[0]["read"] = True
+
+    result = distribute_article(db, "a1", analyses, "openai", {"u1": {"t-x"}, "u2": {"t-x"}})
+    assert result == {"an-openai": {"u2"}}
+    first = db.rows("user_news_feed", user_id="u1")[0]
+    assert first["read"] is True and first["topic_ids"] == []
+    assert len(db.rows("user_news_feed")) == 2
+
+
+def test_an_owned_story_reaches_its_owner_through_a_topic_alone():
+    db = FakeDB()
+    result = distribute_owned_article(db, "a1", [_analysis("m1", assets=())], "u1", "m1", {"t-ny"})
+    assert result == {"an-m1": {"u1"}}
+    assert db.rows("user_news_feed")[0]["topic_ids"] == ["t-ny"]
+    assert distribute_owned_article(db, "a2", [_analysis("m1", assets=())], "u1", "m1") == {}
+
+
+def test_categories_come_from_snap_and_topics_only_from_the_readers_own():
+    db = FakeDB(
+        categories=[
+            {"id": "c-bank", "name": "Banking", "kind": "category"},
+            {"id": "c-semi", "name": "Semiconductors", "kind": "category"},
+            {"id": "t-fed", "name": "Fed interest rates", "kind": "topic"},
+            {"id": "t-ny", "name": "New York", "kind": "topic"},
+        ],
+        article_topics=[
+            {"article_id": "new", "topic_id": "c-bank", "matched": True},
+            {"article_id": "new", "topic_id": "c-semi", "matched": False},
+            {"article_id": "new", "topic_id": "t-fed", "matched": True},
+            {"article_id": "new", "topic_id": "t-ny", "matched": True},
+        ],
+    )
+    articles = [
+        {"id": "new", "related_categories": [], "topic_ids": ["t-fed"]},
+        {"id": "old", "related_categories": ["Software"], "topic_ids": []},
+    ]
+    _attach_topics(db, articles)
+    assert articles[0]["related_categories"] == ["Banking"]
+    assert articles[0]["matched_topics"] == ["Fed interest rates"]
+    assert articles[1]["related_categories"] == ["Software"]
+    assert articles[1]["matched_topics"] == []
+    assert "topic_ids" not in articles[0]

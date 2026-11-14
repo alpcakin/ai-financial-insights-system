@@ -1,5 +1,6 @@
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from app.core.database import get_db
 from app.services.ai import get_registry
@@ -9,6 +10,15 @@ from app.services.asset_catalog import analysis_pool
 from app.services.dedup_service import Story, assign_stories
 from app.services.feed_service import distribute_article
 from app.services.news_service import fetch_articles, filter_new_articles
+from app.services.story_topics import (
+    clear_pending,
+    match_story,
+    now_iso,
+    pending_stories,
+    question_sets,
+    store_match,
+    topic_followers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +40,6 @@ def _analysis_row(article_id: str, analysis: dict) -> dict:
         "summary": analysis.get("summary"),
         "sentiment_label": analysis["sentiment"],
         "severity": analysis["severity"],
-        "related_categories": analysis["categories"],
         "related_assets": [a["symbol"] for a in analysis["impacted_assets"]],
         "asset_impacts": analysis["impacted_assets"],
         "raw_response": analysis.get("raw_response"),
@@ -54,12 +63,15 @@ def report_of(article: dict) -> dict:
     return {"source": article["source"], "title": article["title"], "description": article["description"]}
 
 
-def store_story(db, story: Story, analyses: dict[str, dict], owner_id: str | None = None) -> tuple[str | None, list[dict]]:
+def store_story(
+    db, story: Story, analyses: dict[str, dict], owner_id: str | None = None, topics_pending: bool = False,
+) -> tuple[str | None, list[dict]]:
     """Store a story's articles and analyses in one workspace. Returns the lead's id and the analysis rows."""
     scope = {"owner_id": owner_id} if owner_id else {}
+    pending = {"topics_pending_since": now_iso()} if topics_pending else {}
     grouped = story.members[: MAX_REPORTS_PER_ANALYSIS - 1]
     inserted = db.table("articles").insert(
-        article_row(story.lead, analyzed_report_count=1 + len(grouped), **scope)
+        article_row(story.lead, analyzed_report_count=1 + len(grouped), **scope, **pending)
     ).execute().data
     if not inserted:
         logger.error("Failed to store article: %s", story.lead["url"])
@@ -89,31 +101,45 @@ def send_impact_alerts(db, article_id: str, stored: list[dict], assignments: dic
             )
 
 
-def _process_story(db, story: Story, asset_pool, category_list, default_provider) -> str:
+def analyze_with_topics(story: Story, asset_pool, questions, providers=None, failures=None, topic_model=None):
+    """The story's analyses and its topic match, asked at the same time."""
+    lead = story.lead
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        topics = pool.submit(match_story, lead, *questions, topic_model)
+        analyses = analyze_article_all(
+            title=lead["title"],
+            description=lead["description"],
+            asset_pool=asset_pool,
+            providers=providers,
+            other_reports=[report_of(m) for m in story.members[: MAX_REPORTS_PER_ANALYSIS - 1]] or None,
+            failures=failures,
+        )
+        return analyses, topics.result()
+
+
+def _process_story(db, story: Story, asset_pool, questions, default_provider) -> str:
     """Analyze, store and distribute one new story. Returns the outcome for the cycle summary."""
     lead = story.lead
-    analyses = analyze_article_all(
-        title=lead["title"],
-        description=lead["description"],
-        asset_pool=asset_pool,
-        category_list=category_list,
-        other_reports=[report_of(m) for m in story.members[: MAX_REPORTS_PER_ANALYSIS - 1]] or None,
-    )
+    analyses, topics = analyze_with_topics(story, asset_pool, questions)
     if not analyses:
         # Nothing is stored, so the story is tried again in the next cycle.
         logger.warning("All providers failed, retrying next cycle: %s", lead["url"])
         return "failed"
 
-    article_id, stored = store_story(db, story, analyses)
+    worth_showing = any(qualifies(a) for a in analyses.values())
+    article_id, stored = store_story(db, story, analyses, topics_pending=topics is None and worth_showing)
     if article_id is None:
         return "failed"
+    if topics is not None:
+        store_match(db, article_id, topics)
 
-    if not any(qualifies(a) for a in analyses.values()):
+    if not worth_showing:
         severities = {name: a["severity"] for name, a in analyses.items()}
         logger.info("Stored without distributing, severity too low %s: %s", severities, lead["url"])
         return "low_severity"
 
-    assignments = distribute_article(db, article_id, stored, default_provider)
+    followers = topic_followers(db, topics.matched_ids) if topics else {}
+    assignments = distribute_article(db, article_id, stored, default_provider, followers)
     send_impact_alerts(db, article_id, stored, assignments)
 
     logger.info(
@@ -123,13 +149,36 @@ def _process_story(db, story: Story, asset_pool, category_list, default_provider
     return "processed"
 
 
+def _retry_pending_topics(db, questions, default_provider) -> int:
+    """Ask Snap again about package stories whose topics are missing, and give each
+    to the people following the topics it matches. Stops at the first failure."""
+    done = 0
+    for article in pending_stories(db):
+        topics = match_story(article, *questions)
+        if topics is None:
+            break
+        store_match(db, article["id"], topics)
+        clear_pending(db, article["id"])
+        stored = db.table("article_analyses").select("*").eq("article_id", article["id"]).execute().data
+        assignments = distribute_article(
+            db, article["id"], stored, default_provider, topic_followers(db, topics.matched_ids),
+        )
+        send_impact_alerts(db, article["id"], stored, assignments)
+        done += 1
+    return done
+
+
 def process_news_cycle():
-    summary = {"processed": 0, "low_severity": 0, "failed": 0, "attached": 0}
+    summary = {"processed": 0, "low_severity": 0, "failed": 0, "attached": 0, "late_topics": 0}
     db = get_db()
     registry = get_registry()
     if len(registry) == 0:
         logger.error("No AI providers configured, skipping news cycle")
         return summary
+
+    questions = question_sets(db)
+    default_provider = registry.default.name if registry.default else None
+    summary["late_topics"] = _retry_pending_topics(db, questions, default_provider)
 
     articles = fetch_articles()
     new_articles = filter_new_articles(db, articles)
@@ -149,15 +198,11 @@ def process_news_cycle():
 
     asset_pool = analysis_pool(db)
 
-    categories_result = db.table("categories").select("name").eq("level", 2).execute()
-    category_list = sorted(row["name"] for row in categories_result.data)
-
-    default_provider = registry.default.name if registry.default else None
     for done, story in enumerate(stories):
         if stop_requested.is_set():
             logger.info("Shutting down, leaving %d stories for the next cycle", len(stories) - done)
             break
-        outcome = _process_story(db, story, asset_pool, category_list, default_provider)
+        outcome = _process_story(db, story, asset_pool, questions, default_provider)
         summary[outcome] += 1
 
     logger.info("Cycle complete: %s", summary)

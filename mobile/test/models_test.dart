@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:financial_insights/data/models/alert_models.dart';
+import 'package:financial_insights/data/models/manual_models.dart';
 import 'package:financial_insights/data/models/news_models.dart';
+import 'package:financial_insights/data/models/topic_models.dart';
 import 'package:financial_insights/data/models/user_models.dart';
 
 void main() {
@@ -71,6 +73,13 @@ void main() {
       expect(article.sources.map((s) => s.source), ['Reuters', 'CNBC']);
       expect(article.sources.last.url, 'https://cnbc.com/a');
       expect(article.sources.last.publishedAt, isNull);
+    });
+
+    test('parses the followed topics that brought the story and keeps them on copyWith', () {
+      final article = FeedArticle.fromJson({...json, 'matched_topics': ['New York', 'Gold']});
+      expect(article.matchedTopics, ['New York', 'Gold']);
+      expect(article.copyWith(read: true).matchedTopics, ['New York', 'Gold']);
+      expect(FeedArticle.fromJson(json).matchedTopics, isEmpty);
     });
 
     test('sources default to empty for older payloads', () {
@@ -200,6 +209,32 @@ void main() {
       expect(automatic.isAutomatic, isTrue);
       expect(automatic.label, 'Automatic');
       expect(automatic.thresholdText, isNull);
+    });
+  });
+
+  group('Topics', () {
+    test('a topic users wrote has no level and is their own', () {
+      final topic = TopicCategory.fromJson(
+          {'id': 't1', 'name': 'New York', 'level': null, 'parent_id': null, 'kind': 'topic', 'followed': true});
+      expect(topic.level, isNull);
+      expect(topic.isOwnTopic, isTrue);
+      expect(topic.copyWith(followed: false).isOwnTopic, isTrue);
+    });
+
+    test('an older payload without kind is a category', () {
+      final category = TopicCategory.fromJson(
+          {'id': 'c1', 'name': 'Software', 'level': 2, 'parent_id': 'c0', 'followed': false});
+      expect(category.isOwnTopic, isFalse);
+      expect(category.level, 2);
+    });
+
+    test('manual settings say which model matches topics, null for Snap', () {
+      final base = {
+        'package_enabled': true, 'manual_enabled': true, 'grouping_enabled': false,
+        'selected_model_id': 'm1', 'can_store_keys': true,
+      };
+      expect(ManualSettings.fromJson({...base, 'topic_model_id': 'm2'}).topicModelId, 'm2');
+      expect(ManualSettings.fromJson({...base, 'topic_model_id': null}).topicModelId, isNull);
     });
   });
 }
