@@ -24,16 +24,24 @@ class PrivacyPolicyScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _section(
+              'Not Investment Advice',
+              'The analyses in this app are written automatically by AI models from news headlines and short descriptions. They can be wrong or incomplete and are for information only. Nothing in the app is investment, financial or tax advice, or a recommendation to buy or sell any asset. Make your own decisions, or ask a licensed adviser.',
+            ),
+            _section(
               'Data We Collect',
-              'We collect your email address, portfolio holdings (asset symbols, quantities, purchase prices), watchlist items, news and price alert preferences, and followed topics. This data is necessary to provide personalized financial insights.',
+              'We collect your email address, portfolio holdings (asset symbols, quantities, purchase prices), watchlist items, news and price alert preferences, followed topics, and the topics and assets you add. This data is necessary to provide personalized financial insights.',
             ),
             _section(
               'How We Use Your Data',
-              'Your portfolio and watchlist are used to match relevant financial news and generate alerts when these assets experience significant market events. We do not sell your data to third parties.\n\nNews articles are analyzed by third-party AI services (OpenAI, Google Gemini and Anthropic Claude); the model you select decides whose analysis you see. Only the article text and our fixed list of asset symbols are sent to these services. To find reports of the same event, article text also goes to OpenAI and SubQ. Your email address, holdings, quantities and prices are never shared with them.',
+              'Your portfolio and watchlist are used to match relevant financial news and generate alerts when these assets experience significant market events. We do not sell your data to third parties.\n\nNews articles are analyzed by third-party AI services (OpenAI, Google Gemini and Anthropic Claude); the model you select decides whose analysis you see. Only the article text and the shared asset catalog (symbols and names) are sent to these services. SubQ decides which categories and topics each article relates to, so it receives the article text and the category and topic names. To find reports of the same event, article text also goes to OpenAI and SubQ. Your email address, holdings, quantities and prices are never shared with them.',
+            ),
+            _section(
+              'Topics and Assets You Add',
+              'A topic you add is sent once to SubQ, which checks that it names a subject and is not an instruction or offensive text. Topics and assets you add join shared lists that every user can find and follow; who added them is not shown to anyone. When you search for an asset, the search text is sent to Yahoo Finance.',
             ),
             _section(
               'Your Own Sources and Keys',
-              'If you use your own sources, we store their addresses, the articles fetched from them and your API keys. Keys are stored encrypted, are used only to analyze your own articles with the model you added, are never shown again (only their last 4 characters) and never written to logs. They are deleted when you delete the model or your account. Your articles and their analyses are visible only to you.\n\nThe text of your articles goes to the vendor of each model you add, on your account and under that vendor\'s terms. If you turn on same-event grouping, it also goes to OpenAI and SubQ.',
+              'If you use your own sources, we store their addresses, the articles fetched from them and your API keys. Keys are stored encrypted, are used only to analyze your own articles with the model you added, are never shown again (only their last 4 characters) and never written to logs. They are deleted when you delete the model or your account. Your articles and their analyses are visible only to you.\n\nThe text of your articles goes to the vendor of each model you add, on your account and under that vendor\'s terms. To match your articles to categories and your topics, it also goes to SubQ, unless you pick one of your own models for that. If you turn on same-event grouping, it also goes to OpenAI and SubQ.',
             ),
             _section(
               'Data Storage',
@@ -49,7 +57,7 @@ class PrivacyPolicyScreen extends StatelessWidget {
             ),
             _section(
               'Data Retention',
-              'Your account, portfolio, watchlist, alert settings and reports are retained for as long as your account is active. News feed entries and alerts are deleted after 30 days. When you delete your account, all associated data is permanently removed from our systems.',
+              'Your account, portfolio, watchlist, alert settings and reports are retained for as long as your account is active. News feed entries and alerts are deleted after 30 days. When you delete your account, all associated data is permanently removed from our systems. Topics and assets you added stay in the shared lists, with no link to you.',
             ),
             _section(
               'Contact',

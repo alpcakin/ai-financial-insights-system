@@ -144,8 +144,27 @@ class _AuthGate extends ConsumerStatefulWidget {
   ConsumerState<_AuthGate> createState() => _AuthGateState();
 }
 
-class _AuthGateState extends ConsumerState<_AuthGate> {
+class _AuthGateState extends ConsumerState<_AuthGate> with WidgetsBindingObserver {
   bool _fcmInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ref.read(authProvider.notifier).onAppResumed();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -154,7 +173,7 @@ class _AuthGateState extends ConsumerState<_AuthGate> {
     if (authState.isAuthenticated && !_fcmInitialized && authState.token != null) {
       _fcmInitialized = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        FcmService.init(authState.token!);
+        FcmService.init(() => ref.read(authProvider).token);
       });
     }
 

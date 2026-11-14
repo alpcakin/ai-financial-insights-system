@@ -80,23 +80,22 @@ class AuthRepository {
     throw AuthException(body['detail'] as String? ?? 'Login failed');
   }
 
+  /// Null means the server rejected the refresh token. Network and server
+  /// errors throw instead, so an offline phone keeps its session.
   Future<AuthToken?> refresh(String refreshToken) async {
-    try {
-      final response = await http
-          .post(
-            Uri.parse('${AppConstants.baseUrl}/auth/refresh'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'refresh_token': refreshToken}),
-          )
-          .timeout(_timeout);
+    final response = await http
+        .post(
+          Uri.parse('${AppConstants.baseUrl}/auth/refresh'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'refresh_token': refreshToken}),
+        )
+        .timeout(_timeout);
 
-      if (response.statusCode == 200) {
-        return AuthToken.fromJson(_decode(response));
-      }
-      return null;
-    } catch (_) {
-      return null;
+    if (response.statusCode == 200) {
+      return AuthToken.fromJson(_decode(response));
     }
+    if (response.statusCode == 401) return null;
+    throw AuthException('Refresh failed with status ${response.statusCode}');
   }
 
   Future<void> serverLogout(String refreshToken) async {

@@ -7,10 +7,12 @@
 // and [logout] methods.  On app startup it automatically checks
 // FlutterSecureStorage for a saved token and restores the session
 // so users do not have to log in again every time they open the app.
+// While the app runs, it renews the access token shortly before it expires.
 //
 // The two top-level providers ([authRepositoryProvider] and
 // [secureStorageProvider]) are defined separately so they can be
 // overridden in tests with mock implementations.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -72,12 +74,26 @@ class AuthState {
 }
 
 class AuthNotifier extends StateNotifier<AuthState> {
+  static const refreshMargin = Duration(minutes: 5);
+  static const retryDelay = Duration(minutes: 1);
+
   final AuthRepository _repository;
   final FlutterSecureStorage _storage;
   final Ref _ref;
+  Timer? _refreshTimer;
+  Future<void>? _refreshing;
+  // Bumped on login and logout, so a refresh that started before either one
+  // does not write its tokens over the new session.
+  int _session = 0;
 
   AuthNotifier(this._repository, this._storage, this._ref) : super(const AuthState()) {
     _restoreSession();
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   void _invalidateDataProviders() {
@@ -95,27 +111,32 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(error: null);
   }
 
-  bool _isTokenExpired(String token) {
+  DateTime? _expiry(String token) {
     try {
       final parts = token.split('.');
-      if (parts.length != 3) return true;
+      if (parts.length != 3) return null;
       final payload = utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
-      final claims = jsonDecode(payload) as Map<String, dynamic>;
-      final exp = claims['exp'] as int?;
-      if (exp == null) return true;
-      return DateTime.now().isAfter(DateTime.fromMillisecondsSinceEpoch(exp * 1000));
+      final exp = (jsonDecode(payload) as Map<String, dynamic>)['exp'] as int?;
+      return exp == null ? null : DateTime.fromMillisecondsSinceEpoch(exp * 1000);
     } catch (_) {
-      return true;
+      return null;
     }
   }
 
+  bool _isTokenExpired(String token) {
+    final expiry = _expiry(token);
+    return expiry == null || DateTime.now().isAfter(expiry);
+  }
+
   Future<void> _restoreSession() async {
+    final session = _session;
     final token = await _storage.read(key: AppConstants.tokenKey);
     final userId = await _storage.read(key: AppConstants.userIdKey);
     final email = await _storage.read(key: AppConstants.userEmailKey);
     final storedRefreshToken = await _storage.read(key: AppConstants.refreshTokenKey);
 
     if (token == null || userId == null || email == null) return;
+    if (!mounted || session != _session) return;
 
     if (!_isTokenExpired(token)) {
       state = state.copyWith(
@@ -124,11 +145,26 @@ class AuthNotifier extends StateNotifier<AuthState> {
         email: email,
         token: token,
       );
+      _scheduleRefresh(token);
       return;
     }
 
     if (storedRefreshToken != null) {
-      final refreshed = await _repository.refresh(storedRefreshToken);
+      final AuthToken? refreshed;
+      try {
+        refreshed = await _repository.refresh(storedRefreshToken);
+      } catch (_) {
+        if (!mounted || session != _session) return;
+        state = state.copyWith(
+          isAuthenticated: true,
+          userId: userId,
+          email: email,
+          token: token,
+        );
+        _retryLater();
+        return;
+      }
+      if (!mounted || session != _session) return;
       if (refreshed != null) {
         await _persistSession(refreshed);
         state = state.copyWith(
@@ -137,11 +173,64 @@ class AuthNotifier extends StateNotifier<AuthState> {
           email: refreshed.email,
           token: refreshed.accessToken,
         );
+        _scheduleRefresh(refreshed.accessToken);
         return;
       }
     }
 
     await _storage.deleteAll();
+  }
+
+  void _scheduleRefresh(String token) {
+    final expiry = _expiry(token);
+    if (expiry == null) return;
+    final delay = expiry.subtract(refreshMargin).difference(DateTime.now());
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer(delay.isNegative ? Duration.zero : delay, _refreshSession);
+  }
+
+  void _retryLater() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer(retryDelay, _refreshSession);
+  }
+
+  // The server rotates the refresh token on every use, so two refreshes at
+  // once would make the second one fail; callers share the one in flight.
+  Future<void> _refreshSession() {
+    return _refreshing ??= _rotateTokens().whenComplete(() {
+      _refreshing = null;
+    });
+  }
+
+  Future<void> _rotateTokens() async {
+    final session = _session;
+    final refreshToken = await _storage.read(key: AppConstants.refreshTokenKey);
+    if (refreshToken == null || !mounted || session != _session) return;
+
+    final AuthToken? refreshed;
+    try {
+      refreshed = await _repository.refresh(refreshToken);
+    } catch (_) {
+      if (mounted && session == _session) _retryLater();
+      return;
+    }
+    if (!mounted || session != _session) return;
+
+    if (refreshed == null) {
+      await logout();
+      return;
+    }
+    await _persistSession(refreshed);
+    state = state.copyWith(token: refreshed.accessToken);
+    _scheduleRefresh(refreshed.accessToken);
+  }
+
+  /// Timers stop while the phone sleeps, so the token is checked again when
+  /// the app comes back to the foreground.
+  void onAppResumed() {
+    final token = state.token;
+    if (!state.isAuthenticated || token == null || _refreshing != null) return;
+    _scheduleRefresh(token);
   }
 
   /// Create a new account.  Returns true when the server accepted the request
@@ -167,6 +256,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final token = await _repository.login(email: email, password: password);
+      _session++;
       _invalidateDataProviders();
       await _persistSession(token);
       state = state.copyWith(
@@ -176,6 +266,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         email: token.email,
         token: token.accessToken,
       );
+      _scheduleRefresh(token.accessToken);
       return true;
     } on AuthException catch (e) {
       state = state.copyWith(isLoading: false, error: e.message);
@@ -187,6 +278,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    _session++;
+    _refreshTimer?.cancel();
     final refreshToken = await _storage.read(key: AppConstants.refreshTokenKey);
     await _storage.deleteAll();
     _invalidateDataProviders();

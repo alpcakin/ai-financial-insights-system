@@ -12,7 +12,12 @@ class FcmService {
   static const _channelId = 'financial_alerts';
   static const _channelName = 'Financial Alerts';
 
-  static Future<void> init(String authToken) async {
+  static bool _listening = false;
+
+  /// [authToken] is read on every call because the access token is renewed
+  /// while the app runs. Runs again after each login; the listeners are
+  /// added only once.
+  static Future<void> init(String? Function() authToken) async {
     await _initLocalNotifications();
 
     final settings = await _messaging.requestPermission();
@@ -21,17 +26,23 @@ class FcmService {
     }
 
     final fcmToken = await _messaging.getToken();
-    if (fcmToken == null) return;
+    final token = authToken();
+    if (fcmToken == null || token == null) return;
 
     try {
-      await _repository.registerToken(authToken, fcmToken);
+      await _repository.registerToken(token, fcmToken);
     } catch (e) {
       debugPrint('FCM token registration failed: $e');
     }
 
+    if (_listening) return;
+    _listening = true;
+
     _messaging.onTokenRefresh.listen((newToken) async {
+      final token = authToken();
+      if (token == null) return;
       try {
-        await _repository.registerToken(authToken, newToken);
+        await _repository.registerToken(token, newToken);
       } catch (e) {
         debugPrint('FCM token refresh registration failed: $e');
       }
