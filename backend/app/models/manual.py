@@ -15,6 +15,7 @@ class ManualSettingsResponse(BaseModel):
     selected_model_id: str | None
     # The user's model that matches topics; None means Snap.
     topic_model_id: str | None
+    follow_package_feeds: bool
     can_store_keys: bool
 
 
@@ -22,6 +23,7 @@ class UpdateManualSettingsRequest(BaseModel):
     package_enabled: bool | None = None
     manual_enabled: bool | None = None
     grouping_enabled: bool | None = None
+    follow_package_feeds: bool | None = None
     selected_model_id: UUID | None = None
     # Sending null switches topic matching back to Snap; leaving it out changes nothing.
     topic_model_id: UUID | None = None
@@ -36,6 +38,8 @@ class SourceResponse(BaseModel):
     last_fetched_at: str | None
     last_error: str | None
     created_at: str
+    # One of the app's feeds, followed through follow_package_feeds.
+    from_package: bool
 
 
 class AddSourceRequest(BaseModel):

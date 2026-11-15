@@ -14,18 +14,22 @@ from app.core.safe_http import check_url
 from app.models.manual import AddModelRequest, AddSourceRequest, UpdateManualSettingsRequest, UpdateSourceRequest
 from app.services.ai_service import analyze_article
 from app.services.manual_feeds import fetch_feed
-from app.services.news_service import parse_feed, read_feed_title
+from app.services.news_service import FEEDS, parse_feed, read_feed_title
 from app.services.user_models import build_provider, classify_failure
 
 logger = logging.getLogger(__name__)
 
 MAX_SOURCES = 20
 
-SOURCE_COLUMNS = "id, url, name, fetch_interval_minutes, enabled, last_fetched_at, last_error, created_at"
+#: How often a follower reads the app's feeds; the news package uses the same.
+PACKAGE_FEED_INTERVAL_MINUTES = 15
+
+SOURCE_COLUMNS = "id, url, name, fetch_interval_minutes, enabled, last_fetched_at, last_error, created_at, from_package"
 #: Everything except the encrypted key, which never leaves the backend.
 MODEL_COLUMNS = "id, kind, model, label, base_url, key_last4, stopped_reason, created_at"
 
 _FEED_ERROR = "This address could not be read as a feed."
+_PACKAGE_FEED_LOCKED = "This is one of the app's feeds. Turn off Follow the app's feeds instead."
 
 _MODEL_ERRORS = {
     "auth": "The key or model was rejected.",
@@ -78,6 +82,7 @@ def get_settings(user: dict) -> dict:
         "grouping_enabled": user.get("manual_grouping", False),
         "selected_model_id": user.get("manual_model_id"),
         "topic_model_id": user.get("manual_topic_model_id"),
+        "follow_package_feeds": user.get("manual_follow_package", False),
         "can_store_keys": key_vault.is_available(),
     }
 
@@ -90,6 +95,8 @@ def update_settings(db: Client, user: dict, request: UpdateManualSettingsRequest
         updates["manual_enabled"] = request.manual_enabled
     if request.grouping_enabled is not None:
         updates["manual_grouping"] = request.grouping_enabled
+    if request.follow_package_feeds is not None:
+        updates["manual_follow_package"] = request.follow_package_feeds
     if request.selected_model_id is not None:
         selected = str(request.selected_model_id)
         _owned(db, "user_models", "id", user["id"], selected)
@@ -104,10 +111,51 @@ def update_settings(db: Client, user: dict, request: UpdateManualSettingsRequest
         _rebaseline_sources(db, user["id"])
     if updates:
         db.table("users").update(updates).eq("id", user["id"]).execute()
+    if request.follow_package_feeds is not None:
+        _follow_package_feeds(db, user["id"], request.follow_package_feeds)
     return get_settings({**user, **updates})
 
 
 # ── Sources ──────────────────────────────────────────────────────────────────
+
+def _package_rows(user_id: str) -> list[dict]:
+    return [
+        {
+            "user_id": user_id,
+            "url": feed.url,
+            "name": feed.outlet,
+            "fetch_interval_minutes": PACKAGE_FEED_INTERVAL_MINUTES,
+            "from_package": True,
+            "needs_baseline": True,
+        }
+        for feed in FEEDS
+    ]
+
+
+def _follow_package_feeds(db: Client, user_id: str, follow: bool) -> None:
+    if follow:
+        # A feed the user had already added stays their own row.
+        db.table("user_sources").upsert(_package_rows(user_id), on_conflict="user_id,url", ignore_duplicates=True).execute()
+    else:
+        db.table("user_sources").delete().eq("user_id", user_id).eq("from_package", True).execute()
+
+
+def refresh_package_sources(db: Client) -> None:
+    """Keep followers pointed at the current FEEDS: new feeds are added, removed ones dropped.
+    FEEDS lives in code, so running this at startup is enough."""
+    urls = {feed.url for feed in FEEDS}
+    rows = db.table("user_sources").select("id, url").eq("from_package", True).execute().data
+    stale = [row["id"] for row in rows if row["url"] not in urls]
+    if stale:
+        db.table("user_sources").delete().in_("id", stale).execute()
+    followers = db.table("users").select("id").eq("manual_follow_package", True).execute().data
+    if followers:
+        db.table("user_sources").upsert(
+            [row for follower in followers for row in _package_rows(follower["id"])],
+            on_conflict="user_id,url",
+            ignore_duplicates=True,
+        ).execute()
+
 
 def list_sources(db: Client, user_id: str) -> list[dict]:
     return db.table("user_sources").select(SOURCE_COLUMNS).eq("user_id", user_id).order("created_at").execute().data
@@ -117,11 +165,14 @@ def add_source(db: Client, user: dict, request: AddSourceRequest) -> dict:
     user_id = user["id"]
     _check_limit(source_test_limiter, user_id)
 
-    existing = db.table("user_sources").select("url").eq("user_id", user_id).execute().data
-    if len(existing) >= MAX_SOURCES:
+    existing = db.table("user_sources").select("url, from_package").eq("user_id", user_id).execute().data
+    if sum(not row["from_package"] for row in existing) >= MAX_SOURCES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"You can have at most {MAX_SOURCES} sources.")
     url = request.url.strip()
-    if url in {row["url"] for row in existing}:
+    same = next((row for row in existing if row["url"] == url), None)
+    if same and same["from_package"]:
+        raise HTTPException(status.HTTP_409_CONFLICT, "You already follow this feed through the app's feeds.")
+    if same:
         raise HTTPException(status.HTTP_409_CONFLICT, "You already have this source.")
 
     try:
@@ -147,6 +198,8 @@ def add_source(db: Client, user: dict, request: AddSourceRequest) -> dict:
 
 def update_source(db: Client, user: dict, source_id: str, request: UpdateSourceRequest) -> dict:
     current = _owned(db, "user_sources", SOURCE_COLUMNS, user["id"], source_id)
+    if current["from_package"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, _PACKAGE_FEED_LOCKED)
     updates = request.model_dump(exclude_none=True)
     if request.enabled and not current["enabled"]:
         updates["needs_baseline"] = True
@@ -158,7 +211,8 @@ def update_source(db: Client, user: dict, source_id: str, request: UpdateSourceR
 
 
 def delete_source(db: Client, user: dict, source_id: str) -> None:
-    _owned(db, "user_sources", "id", user["id"], source_id)
+    if _owned(db, "user_sources", "id, from_package", user["id"], source_id)["from_package"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, _PACKAGE_FEED_LOCKED)
     db.table("user_sources").delete().eq("id", source_id).execute()
 
 

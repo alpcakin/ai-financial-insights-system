@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.report_tasks import generate_weekly_reports
     from app.services.alert_service import generate_volatility_alerts
     from app.services.asset_check_service import run_asset_check
+    from app.services.manual_service import refresh_package_sources
     from app.services.retention_service import purge_old_data
     from app.services.ai import get_registry
 
@@ -58,6 +59,14 @@ async def lifespan(app: FastAPI):
         logger.info("Volatility check scheduled every %d min", settings.volatility_check_interval_minutes)
 
     if settings.manual_check_interval_minutes > 0:
+        def _refresh_followed_feeds():
+            try:
+                refresh_package_sources(get_db())
+            except Exception as e:
+                logger.error("Refreshing the app's feeds for followers failed: %s", e)
+
+        # Once at startup: FEEDS lives in code, so it only changes with a restart.
+        scheduler.add_job(_refresh_followed_feeds)
         scheduler.add_job(
             process_manual_cycle,
             "interval",

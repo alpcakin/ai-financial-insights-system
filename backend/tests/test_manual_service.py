@@ -287,6 +287,7 @@ def test_defaults_are_package_on_manual_off_grouping_off():
         "grouping_enabled": False,
         "selected_model_id": None,
         "topic_model_id": None,
+        "follow_package_feeds": False,
         "can_store_keys": True,
     }
 
@@ -340,3 +341,89 @@ def test_someone_elses_model_cannot_match_my_topics(db):
     db.rows("user_models", id=theirs["id"])[0]["id"] = "00000000-0000-0000-0000-00000000000b"
     request = UpdateManualSettingsRequest(topic_model_id="00000000-0000-0000-0000-00000000000b")
     assert _status(lambda: manual_service.update_settings(db, USER, request)) == 404
+
+
+# ── Following the app's feeds (journal 2.80) ─────────────────────────────────
+
+APP_FEEDS = {feed.url for feed in manual_service.FEEDS}
+
+
+def _follow(db, follow=True, user=USER):
+    return manual_service.update_settings(db, user, UpdateManualSettingsRequest(follow_package_feeds=follow))
+
+
+def test_following_adds_every_app_feed_marked_and_waiting_for_a_baseline(db):
+    assert _follow(db)["follow_package_feeds"] is True
+    rows = db.rows("user_sources", user_id="u1")
+    assert {r["url"] for r in rows} == APP_FEEDS
+    assert all(r["from_package"] and r["needs_baseline"] for r in rows)
+    assert {r["fetch_interval_minutes"] for r in rows} == {manual_service.PACKAGE_FEED_INTERVAL_MINUTES}
+    assert db.rows("users", id="u1")[0]["manual_follow_package"] is True
+
+
+def test_an_app_feed_the_user_already_added_stays_theirs(db):
+    url = manual_service.FEEDS[0].url
+    _add_source(db, url=url)
+    _follow(db)
+    mine = db.rows("user_sources", user_id="u1", url=url)
+    assert len(mine) == 1 and mine[0]["from_package"] is False
+    assert len(db.rows("user_sources", user_id="u1")) == len(APP_FEEDS)
+
+
+def test_unfollowing_removes_only_the_app_feeds(db):
+    own = _add_source(db)
+    _follow(db)
+    _follow(db, follow=False, user={**USER, "manual_follow_package": True})
+    assert [r["id"] for r in db.rows("user_sources", user_id="u1")] == [own["id"]]
+
+
+def test_following_leaves_other_users_alone(db):
+    _follow(db)
+    assert db.rows("user_sources", user_id="u2") == []
+
+
+def test_app_feeds_do_not_count_towards_the_limit(db):
+    _follow(db)
+    for n in range(manual_service.MAX_SOURCES - 1):
+        db.add("user_sources", {"user_id": "u1", "url": f"https://x.test/{n}"})
+    assert _add_source(db)["url"] == "https://x.test/rss"
+    assert _status(lambda: _add_source(db, url="https://x.test/one-more")) == 400
+
+
+def test_adding_a_followed_app_feed_says_where_it_already_is(db):
+    _follow(db)
+    with pytest.raises(HTTPException) as err:
+        _add_source(db, url=manual_service.FEEDS[0].url)
+    assert err.value.status_code == 409
+    assert "app's feeds" in err.value.detail
+
+
+def test_an_app_feed_cannot_be_changed_or_deleted_on_its_own(db):
+    _follow(db)
+    row = db.rows("user_sources", user_id="u1")[0]
+    assert _status(lambda: manual_service.update_source(db, USER, row["id"], UpdateSourceRequest(enabled=False))) == 400
+    assert _status(lambda: manual_service.delete_source(db, USER, row["id"])) == 400
+    assert len(db.rows("user_sources", user_id="u1")) == len(APP_FEEDS)
+
+
+def test_the_listing_marks_the_app_feeds(db):
+    _add_source(db)
+    _follow(db)
+    marks = {r["url"]: r["from_package"] for r in manual_service.list_sources(db, "u1")}
+    assert marks["https://x.test/rss"] is False
+    assert all(marks[url] for url in APP_FEEDS)
+
+
+def test_a_refresh_points_followers_at_the_current_list():
+    db = FakeDB(
+        users=[{"id": "u1", "manual_follow_package": True}, {"id": "u2", "manual_follow_package": False}],
+        user_sources=[
+            {"id": "old", "user_id": "u1", "url": "https://dropped.test/rss", "from_package": True},
+            {"id": "kept", "user_id": "u1", "url": manual_service.FEEDS[0].url, "from_package": True, "needs_baseline": False},
+            {"id": "own", "user_id": "u2", "url": "https://dropped.test/rss", "from_package": False},
+        ],
+    )
+    manual_service.refresh_package_sources(db)
+    assert {r["url"] for r in db.rows("user_sources", user_id="u1")} == APP_FEEDS
+    assert db.rows("user_sources", id="kept")[0]["needs_baseline"] is False
+    assert [r["id"] for r in db.rows("user_sources", user_id="u2")] == ["own"]

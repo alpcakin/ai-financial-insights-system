@@ -7,6 +7,9 @@ class ManualSettings {
   /// The user's model that matches topics; null means SubQ Snap.
   final String? topicModelId;
 
+  /// Whether the user reads the app's own feeds with their models.
+  final bool followPackageFeeds;
+
   /// False when the server has no encryption key, so no API key can be stored.
   final bool canStoreKeys;
 
@@ -16,6 +19,7 @@ class ManualSettings {
     required this.groupingEnabled,
     this.selectedModelId,
     this.topicModelId,
+    this.followPackageFeeds = false,
     required this.canStoreKeys,
   });
 
@@ -25,6 +29,7 @@ class ManualSettings {
         groupingEnabled: json['grouping_enabled'] as bool,
         selectedModelId: json['selected_model_id'] as String?,
         topicModelId: json['topic_model_id'] as String?,
+        followPackageFeeds: json['follow_package_feeds'] as bool? ?? false,
         canStoreKeys: json['can_store_keys'] as bool,
       );
 }
@@ -41,6 +46,9 @@ class UserSource {
   /// "unreachable" or "unreadable" when the last fetch failed.
   final String? lastError;
 
+  /// One of the app's feeds, there because the user follows them.
+  final bool fromPackage;
+
   const UserSource({
     required this.id,
     required this.url,
@@ -49,6 +57,7 @@ class UserSource {
     required this.enabled,
     this.lastFetchedAt,
     this.lastError,
+    this.fromPackage = false,
   });
 
   factory UserSource.fromJson(Map<String, dynamic> json) => UserSource(
@@ -59,6 +68,7 @@ class UserSource {
         enabled: json['enabled'] as bool,
         lastFetchedAt: json['last_fetched_at'] as String?,
         lastError: json['last_error'] as String?,
+        fromPackage: json['from_package'] as bool? ?? false,
       );
 }
 

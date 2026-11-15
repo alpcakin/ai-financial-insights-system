@@ -72,6 +72,7 @@ class ManualNotifier extends StateNotifier<ManualState> {
     bool? manualEnabled,
     bool? groupingEnabled,
     String? selectedModelId,
+    bool? followPackageFeeds,
   }) async {
     final settings = await _repository.updateSettings(
       token,
@@ -79,8 +80,13 @@ class ManualNotifier extends StateNotifier<ManualState> {
       manualEnabled: manualEnabled,
       groupingEnabled: groupingEnabled,
       selectedModelId: selectedModelId,
+      followPackageFeeds: followPackageFeeds,
     );
     state = state.copyWith(settings: settings);
+    // Following adds or removes the app's feeds among the sources on the server.
+    if (followPackageFeeds != null) {
+      state = state.copyWith(sources: await _repository.getSources(token));
+    }
   }
 
   /// Picks the model that matches topics; null hands it back to SubQ Snap.

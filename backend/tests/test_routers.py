@@ -471,7 +471,7 @@ MODEL_ROW = {
 SOURCE_ROW = {
     "id": "s1", "url": "https://x.test/rss", "name": "Mine", "fetch_interval_minutes": 15, "enabled": True,
     "last_fetched_at": None, "last_error": None, "created_at": "2026-11-05T00:00:00",
-    "baseline_urls": ["https://x.test/a"], "needs_baseline": False, "user_id": "user-123",
+    "baseline_urls": ["https://x.test/a"], "needs_baseline": False, "user_id": "user-123", "from_package": False,
 }
 ANY_ID = "00000000-0000-0000-0000-000000000001"
 

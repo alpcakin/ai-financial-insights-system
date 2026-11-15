@@ -19,7 +19,8 @@ bearer = HTTPBearer()
 
 USER_COLUMNS = (
     "id, email, notification_preferences, ai_provider, created_at, "
-    "package_enabled, manual_enabled, manual_grouping, manual_model_id, manual_topic_model_id"
+    "package_enabled, manual_enabled, manual_grouping, manual_model_id, manual_topic_model_id, "
+    "manual_follow_package"
 )
 
 

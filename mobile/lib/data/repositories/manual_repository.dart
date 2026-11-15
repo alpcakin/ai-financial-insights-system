@@ -49,6 +49,7 @@ class ManualRepository {
     bool? manualEnabled,
     bool? groupingEnabled,
     String? selectedModelId,
+    bool? followPackageFeeds,
     bool setTopicModel = false,
     String? topicModelId,
   }) async {
@@ -61,6 +62,7 @@ class ManualRepository {
             if (manualEnabled != null) 'manual_enabled': manualEnabled,
             if (groupingEnabled != null) 'grouping_enabled': groupingEnabled,
             if (selectedModelId != null) 'selected_model_id': selectedModelId,
+            if (followPackageFeeds != null) 'follow_package_feeds': followPackageFeeds,
             // null is sent on purpose: it hands topic matching back to Snap.
             if (setTopicModel) 'topic_model_id': topicModelId,
           }),

@@ -15,7 +15,7 @@ from tests.catalog import CATALOG
 _DEFAULTS = {
     "user_sources": {
         "fetch_interval_minutes": 15, "enabled": True, "needs_baseline": False, "baseline_urls": [],
-        "last_fetched_at": None, "last_error": None,
+        "last_fetched_at": None, "last_error": None, "from_package": False,
     },
     "user_models": {"base_url": None, "stopped_reason": None},
     "portfolio": {"added_at": "2026-11-05T00:00:00+00:00"},
