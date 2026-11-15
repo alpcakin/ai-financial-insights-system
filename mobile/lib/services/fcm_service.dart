@@ -18,6 +18,7 @@ class FcmService {
   /// while the app runs. Runs again after each login; the listeners are
   /// added only once.
   static Future<void> init(String? Function() authToken) async {
+    if (kIsWeb) return;
     await _initLocalNotifications();
 
     final settings = await _messaging.requestPermission();

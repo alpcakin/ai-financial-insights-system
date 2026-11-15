@@ -18,6 +18,7 @@ from app.core import key_vault
 from app.core.database import get_db
 from app.services.ai import AIProvider
 from app.services.asset_catalog import analysis_pool
+from app.services.company_changes import current_changes
 from app.services.dedup_service import GroupingUnavailable, Story, assign_stories
 from app.services.feed_service import deliver_unanalyzed, distribute_owned_article
 from app.services.manual_feeds import fetch_feed, forget_other_feeds
@@ -149,6 +150,7 @@ def _owner_topics(db, user_id: str, topics) -> set[str]:
 
 def _process_owned_story(
     db, user: dict, story: Story, providers: list[AIProvider], labels, asset_pool, questions, topic_model,
+    changes,
 ) -> bool:
     """Analyze, store and deliver one story. False means stop this user's turn: the
     story was not stored and comes back with the next fetch."""
@@ -156,6 +158,7 @@ def _process_owned_story(
     failures: dict[str, Exception] = {}
     analyses, topics = analyze_with_topics(
         story, asset_pool, questions, providers=list(providers), failures=failures, topic_model=topic_model,
+        changes=changes,
     )
 
     reasons = {name: classify_failure(error) for name, error in failures.items()}
@@ -245,11 +248,12 @@ def _run_turn(db, user: dict, models: list[dict], articles: list[dict]) -> None:
 
     labels = {model["id"]: model["label"] for model in models}
     asset_pool = analysis_pool(db)
+    changes = current_changes(db)
 
     for story in stories:
         if stop_requested.is_set() or not providers:
             return
-        if not _process_owned_story(db, user, story, providers, labels, asset_pool, questions, topic_model):
+        if not _process_owned_story(db, user, story, providers, labels, asset_pool, questions, topic_model, changes):
             logger.warning("User %s stops this turn, stories wait for the next fetch", user_id)
             return
 

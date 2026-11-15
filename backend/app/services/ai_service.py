@@ -39,28 +39,40 @@ SYSTEM_PROMPT = (
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
+#: Measured against a plainer header in DEVELOPMENT_JOURNAL.md 2.32: it kept the
+#: lines' benefit and tagged fewer owners on news that does not matter to them.
+BACKGROUND_HEADER = (
+    "BACKGROUND (verified facts that may be newer than your training data). A fact here does not make "
+    "a company relevant on its own; include a company only if this article itself materially affects it:"
+)
+
 
 def build_user_prompt(
     title: str,
     description: str,
     asset_pool: dict[str, str],
     other_reports: list[dict] | None = None,
+    background: list[str] | None = None,
 ) -> str:
     """The text is frozen: a single-report prompt is P2 of DEVELOPMENT_JOURNAL.md
     2.58 with asset names added to the asset list (2.69) and the category list
     taken out (2.71: Snap matches categories now). Editing it invalidates the
     measurements of that text. ``asset_pool`` maps symbol to name.
     ``other_reports`` are other outlets' versions of the same event that arrived
-    together."""
+    together. ``background`` holds the company changes the story names
+    (services/company_changes.py); without it the text is unchanged."""
     reports = ""
     if other_reports:
         lines = "\n".join(
             f'- {r["source"]}: "{r["title"]}" - "{r["description"]}"' for r in other_reports
         )
         reports = f"\n\nOTHER REPORTS OF THE SAME EVENT:\n{lines}"
+    facts = ""
+    if background:
+        facts = f"\n\n{BACKGROUND_HEADER}\n" + "\n".join(f"- {line}" for line in background)
     return f"""ARTICLE:
 Title: "{title}"
-Description: "{description}"{reports}
+Description: "{description}"{reports}{facts}
 
 ACTIVE ASSETS IN SYSTEM (symbol: name):
 {json.dumps(asset_pool)}
@@ -259,6 +271,7 @@ def analyze_article(
     provider: AIProvider | None = None,
     other_reports: list[dict] | None = None,
     failures: dict[str, Exception] | None = None,
+    background: list[str] | None = None,
 ) -> dict | None:
     """Analyze one article with one provider.
 
@@ -272,7 +285,7 @@ def analyze_article(
             logger.error("analyze_article called with no AI provider configured")
             return None
 
-    user_prompt = build_user_prompt(title, description, asset_pool, other_reports)
+    user_prompt = build_user_prompt(title, description, asset_pool, other_reports, background)
     answer = _ask(provider, SYSTEM_PROMPT, user_prompt, lambda data: _validate_response(data, asset_pool), failures)
     if answer is None:
         return None
@@ -302,6 +315,7 @@ def analyze_article_all(
     providers: list[AIProvider] | None = None,
     other_reports: list[dict] | None = None,
     failures: dict[str, Exception] | None = None,
+    background: list[str] | None = None,
 ) -> dict[str, dict]:
     """Analyze one article with every enabled provider in parallel.
 
@@ -317,7 +331,9 @@ def analyze_article_all(
     results: dict[str, dict] = {}
     with ThreadPoolExecutor(max_workers=len(providers)) as executor:
         futures = {
-            executor.submit(analyze_article, title, description, asset_pool, p, other_reports, failures): p
+            executor.submit(
+                analyze_article, title, description, asset_pool, p, other_reports, failures, background,
+            ): p
             for p in providers
         }
         for future, provider in futures.items():

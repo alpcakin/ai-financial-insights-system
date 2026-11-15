@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.core.config import settings
 from app.services import ai_service
 from app.services.ai import ProviderRegistry, set_registry
 from app.services.dedup_service import Attachment, Story
@@ -46,6 +47,7 @@ def _pipeline_db():
     db.inserts = {}
     db.catalog = CATALOG
     db.analyses = []
+    db.changes = []
 
     def t(name):
         m = chain_mock([])
@@ -55,6 +57,8 @@ def _pipeline_db():
             m.execute.return_value.data = [{"id": "c-tech", "name": "Technology"}]
         elif name == "assets":
             m.execute.return_value.data = db.catalog
+        elif name == "company_changes":
+            m.execute.return_value.data = db.changes
         elif name == "articles":
             def insert(row):
                 rows = row if isinstance(row, list) else [row]
@@ -98,7 +102,7 @@ def test_cycle_stores_one_analysis_per_provider(mock_distribute, mock_alerts):
 
     result, db = _run([_article()])
 
-    assert result == {"processed": 1, "low_severity": 0, "failed": 0, "attached": 0, "late_topics": 0}
+    assert result == {"processed": 1, "low_severity": 0, "failed": 0, "attached": 0, "late_topics": 0, "change_checks": 0}
     [stored] = db.inserts["articles"]
     assert stored["url"] == "https://bloomberg.com/a"
     assert stored["description"] == "Strong quarter"
@@ -149,7 +153,7 @@ def test_low_severity_story_is_stored_and_left_to_each_users_feed_level(mock_dis
 
     result, db = _run([_article()])
 
-    assert result == {"processed": 0, "low_severity": 1, "failed": 0, "attached": 0, "late_topics": 0}
+    assert result == {"processed": 0, "low_severity": 1, "failed": 0, "attached": 0, "late_topics": 0, "change_checks": 0}
     assert len(db.inserts["articles"]) == 1
     assert len(db.inserts["article_analyses"]) == 2
     mock_distribute.assert_called_once()
@@ -227,7 +231,7 @@ def test_report_of_a_stored_story_is_attached_without_analysis(mock_distribute):
 
     result, db = _run([late], stories=[], attachments=[Attachment(late, "lead-1", 0.88)])
 
-    assert result == {"processed": 0, "low_severity": 0, "failed": 0, "attached": 1, "late_topics": 0}
+    assert result == {"processed": 0, "low_severity": 0, "failed": 0, "attached": 1, "late_topics": 0, "change_checks": 0}
     [row] = db.inserts["articles"]
     assert row["duplicate_of"] == "lead-1"
     assert row["duplicate_similarity"] == 0.88
@@ -293,7 +297,7 @@ def test_cycle_aborts_without_providers(mock_fetch):
     set_registry(ProviderRegistry([], None))
     with patch("app.tasks.news_tasks.get_db", return_value=_pipeline_db()):
         result = news_tasks.process_news_cycle()
-    assert result == {"processed": 0, "low_severity": 0, "failed": 0, "attached": 0, "late_topics": 0}
+    assert result == {"processed": 0, "low_severity": 0, "failed": 0, "attached": 0, "late_topics": 0, "change_checks": 0}
     mock_fetch.assert_not_called()
 
 
@@ -379,3 +383,80 @@ def test_asking_again_stops_at_the_first_failure(distribute):
     assert result["late_topics"] == 0
     assert match.call_count == 1
     distribute.assert_not_called()
+
+
+# ── Company changes (journal 2.76) ───────────────────────────────────────────
+
+WIZ = {
+    "id": "c1", "asset_symbol": "MSFT", "kind": "acquires", "party": "Wiz", "new_name": None,
+    "status": "completed", "announced_on": "2025-03-18", "effective_on": "2026-03-11", "keywords": ["Wiz"],
+}
+
+
+def _recording_provider(answer):
+    provider = FakeProvider("openai", [answer])
+    provider.prompts = []
+    complete = provider.complete
+    provider.complete = lambda s, u: (provider.prompts.append(u), complete(s, u))[1]
+    return provider
+
+
+@pytest.fixture
+def change_updates():
+    with patch.object(settings, "change_model", "claude-sonnet-5-5"), \
+            patch.object(settings, "anthropic_api_key", "sk-test"):
+        yield
+
+
+@patch("app.tasks.news_tasks.distribute_article", return_value={})
+def test_a_story_naming_a_recorded_change_gets_its_line_in_the_prompt(_distribute):
+    provider = _recording_provider(_response("medium", "MSFT"))
+    set_registry(ProviderRegistry([provider], "openai"))
+    db = _pipeline_db()
+    db.changes = [WIZ]
+    _run([_article("Wiz earns a new certification")], db=db)
+    assert "\n- Wiz: acquired by Microsoft Corporation (MSFT) on 2026-03-11.\n" in provider.prompts[0]
+
+
+@patch("app.tasks.news_tasks.distribute_article", return_value={})
+def test_a_story_naming_no_recorded_change_gets_the_frozen_prompt(_distribute):
+    provider = _recording_provider(_response())
+    set_registry(ProviderRegistry([provider], "openai"))
+    db = _pipeline_db()
+    db.changes = [WIZ]
+    _run([_article()], db=db)
+    assert provider.prompts[0] == ai_service.build_user_prompt(
+        "Apple beats estimates", "Strong quarter", {a["symbol"]: a["name"] for a in CATALOG},
+    )
+
+
+@patch("app.tasks.news_tasks.distribute_article", return_value={})
+def test_a_story_that_reads_like_a_deal_waits_for_the_change_model(_distribute, change_updates):
+    set_registry(ProviderRegistry([FakeProvider("openai", [_response(), _response()])], "openai"))
+    with patch("app.tasks.news_tasks.check_story") as check, \
+            patch("app.tasks.news_tasks.stories_to_check", return_value=[]):
+        _, db = _run([_article("Microsoft to acquire Contoso"), _article(url="https://bloomberg.com/b")])
+    deal, other = db.inserts["articles"]
+    assert deal["changes_pending_since"]
+    assert "changes_pending_since" not in other
+    check.assert_not_called()
+
+
+@patch("app.tasks.news_tasks.distribute_article", return_value={})
+def test_no_story_waits_while_the_change_model_is_off(_distribute):
+    set_registry(ProviderRegistry([FakeProvider("openai", [_response()])], "openai"))
+    with patch("app.tasks.news_tasks.stories_to_check") as waiting:
+        result, db = _run([_article("Microsoft to acquire Contoso")])
+    assert "changes_pending_since" not in db.inserts["articles"][0]
+    assert result["change_checks"] == 0
+    waiting.assert_not_called()
+
+
+def test_waiting_stories_are_checked_after_the_new_ones_and_stop_at_the_first_failure(change_updates):
+    set_registry(ProviderRegistry([FakeProvider("openai")], "openai"))
+    waiting = [{"id": f"w{i}", "url": f"u{i}"} for i in range(3)]
+    with patch("app.tasks.news_tasks.stories_to_check", return_value=waiting), \
+            patch("app.tasks.news_tasks.check_story", side_effect=[True, False, True]) as check:
+        result, _ = _run([])
+    assert result["change_checks"] == 1
+    assert check.call_count == 2

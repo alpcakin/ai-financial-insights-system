@@ -45,6 +45,13 @@ Categories are not in the analysis prompt. For every new story, SubQ Snap answer
 - A user adds a topic by name (`POST /topics`). An existing category or topic is followed as it is; existing ones are suggested while typing (`GET /topics/search`). A new text first goes through one Snap request that rejects instructions and offensive text; the answer is kept per text, so the same text is never asked twice. Up to 10 own topics per user; at most 2 to 40 letters, digits, spaces and `& + - . , ' ( ) /`.
 - In manual mode Snap is asked about the 33 categories and the user's own topics only, on the user's own stories. The user can pick one of their models for this instead (`topic_model_id` in `/manual/settings`); it gets one shared prompt in `ai_service.py`, and Snap answers when it fails.
 
+## Company changes
+
+The models do not know acquisitions, mergers and renames that happened after their training data ends. The `company_changes` table (migration 029) keeps those that involve a catalog asset, and a story that names one of a record's keywords gets that record as one line in the analysis prompt, for example "Dominion Energy: NextEra Energy Inc. (NEE) agreed on 2026-05-18 to acquire it; the deal has not closed." Keywords match as whole words; one written in capitals (a ticker) matches only in capitals. Stories that name no record get the unchanged prompt (`app/services/company_changes.py`).
+
+- With `CHANGE_MODEL` set (`claude-haiku-5-5` was tested on 30 chosen stories, all right; on `ANTHROPIC_API_KEY`), a package story that reads like a deal or a rename is checked after the cycle's new stories by that model with web search. It records changes through a fixed schema with two sources from different sites; the code checks every field before writing. A pending deal is updated when news of its closing or termination arrives. Records are never edited: `replace_company_change` stores a new version and closes the old one.
+- Manual-mode stories read the table but never write it.
+
 ## Asset news
 
 The feed is a stored log: an entry is written when a story arrives and is not rewritten later, so nothing appears between entries the user has read, and adding or removing an asset or changing the model only affects what comes next. To read about any catalog asset, the app calls `GET /feed/asset-news?symbol=XOM`, which reads stored analyses on demand (last 30 days, the user's model, low importance included) through the `asset_news` function and makes no AI call. The asset can be added to the watchlist from that screen. `GET /feed/{article_id}/analyses` returns every model's analysis of one story, so models can be compared on the same article.
@@ -164,5 +171,6 @@ Run the migration files in order against your Supabase project. The number prefi
 | `026_asset_catalog.sql` | the asset catalog moves from code to the `assets` table with the 148 assets; `rename_asset`; `asset_news` also searches an asset's previous symbols (apply with the backend stopped) |
 | `027_asset_added_by.sql` | `assets.added_by`: who added an asset to the catalog |
 | `028_topics.sql` | topics: `categories.kind` (fixed category or user topic; level-3 categories become topics), `topic_checks`, `article_topics`, `articles.topics_pending_since`, `user_news_feed.topic_ids`, `users.manual_topic_model_id` (apply before starting the new backend) |
+| `029_company_changes.sql` | company changes: `company_changes` with 84 seed records, `replace_company_change`, `articles.changes_pending_since` (apply before starting the new backend) |
 
 Row-level security is enabled on every user-owned table. The backend connects with the service role key and is therefore not restricted by those policies; access control is enforced in the API layer through JWT authentication. RLS exists as a second line of defence so that a leaked anon key, or any client talking to Supabase directly, can only reach the rows of the authenticated user.

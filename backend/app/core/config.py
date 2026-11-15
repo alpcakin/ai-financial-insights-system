@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     # on the topic test, where it kept recall at 0.92-0.95 (journal 2.71).
     topic_match_threshold: float = 0.5
 
+    # Company changes (app.services.company_changes): the model that reads package
+    # stories that look like a deal or a rename, checks them with web search and
+    # writes the table. It runs on ANTHROPIC_API_KEY; empty turns the writing off.
+    # The table still goes into the analysis prompt either way.
+    change_model: str = ""
+
     # Feed entries, alerts and stories older than this are deleted once a
     # day (app.services.retention_service); 0 disables the cleanup.
     retention_days: int = 30

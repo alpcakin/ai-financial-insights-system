@@ -7,6 +7,15 @@ from app.services.ai import get_registry
 from app.services.ai_service import analyze_article_all, qualifies
 from app.services.alert_service import generate_impact_alerts
 from app.services.asset_catalog import analysis_pool
+from app.services.company_changes import (
+    background_lines,
+    check_story,
+    current_changes,
+    is_candidate,
+    stories_to_check,
+    story_text,
+    updates_enabled,
+)
 from app.services.dedup_service import Story, assign_stories
 from app.services.feed_service import distribute_article
 from app.services.news_service import fetch_articles, filter_new_articles
@@ -65,10 +74,13 @@ def report_of(article: dict) -> dict:
 
 def store_story(
     db, story: Story, analyses: dict[str, dict], owner_id: str | None = None, topics_pending: bool = False,
+    changes_pending: bool = False,
 ) -> tuple[str | None, list[dict]]:
     """Store a story's articles and analyses in one workspace. Returns the lead's id and the analysis rows."""
     scope = {"owner_id": owner_id} if owner_id else {}
     pending = {"topics_pending_since": now_iso()} if topics_pending else {}
+    if changes_pending:
+        pending["changes_pending_since"] = now_iso()
     grouped = story.members[: MAX_REPORTS_PER_ANALYSIS - 1]
     inserted = db.table("articles").insert(
         article_row(story.lead, analyzed_report_count=1 + len(grouped), **scope, **pending)
@@ -103,9 +115,16 @@ def send_impact_alerts(db, article_id: str, stored: list[dict], assignments: dic
             )
 
 
-def analyze_with_topics(story: Story, asset_pool, questions, providers=None, failures=None, topic_model=None):
-    """The story's analyses and its topic match, asked at the same time."""
+def analyze_with_topics(
+    story: Story, asset_pool, questions, providers=None, failures=None, topic_model=None, changes=(),
+):
+    """The story's analyses and its topic match, asked at the same time. ``changes``
+    are the current company changes; those the story names go into the prompt."""
     lead = story.lead
+    reports = [report_of(m) for m in story.members[: MAX_REPORTS_PER_ANALYSIS - 1]]
+    background = background_lines(changes, story_text(lead, reports), asset_pool)
+    if background:
+        logger.info("Company changes in the prompt for %s: %s", lead["url"], background)
     with ThreadPoolExecutor(max_workers=1) as pool:
         topics = pool.submit(match_story, lead, *questions, topic_model)
         analyses = analyze_article_all(
@@ -113,23 +132,28 @@ def analyze_with_topics(story: Story, asset_pool, questions, providers=None, fai
             description=lead["description"],
             asset_pool=asset_pool,
             providers=providers,
-            other_reports=[report_of(m) for m in story.members[: MAX_REPORTS_PER_ANALYSIS - 1]] or None,
+            other_reports=reports or None,
             failures=failures,
+            background=background or None,
         )
         return analyses, topics.result()
 
 
-def _process_story(db, story: Story, asset_pool, questions, default_provider) -> str:
+def _process_story(db, story: Story, asset_pool, questions, default_provider, changes) -> str:
     """Analyze, store and distribute one new story. Returns the outcome for the cycle summary."""
     lead = story.lead
-    analyses, topics = analyze_with_topics(story, asset_pool, questions)
+    analyses, topics = analyze_with_topics(story, asset_pool, questions, changes=changes)
     if not analyses:
         # Nothing is stored, so the story is tried again in the next cycle.
         logger.warning("All providers failed, retrying next cycle: %s", lead["url"])
         return "failed"
 
+    reports = [report_of(m) for m in story.members[: MAX_REPORTS_PER_ANALYSIS - 1]]
+    changes_pending = updates_enabled() and is_candidate(story_text(lead, reports), changes)
     # Even a low story waits for its topics: some users see low stories too.
-    article_id, stored = store_story(db, story, analyses, topics_pending=topics is None)
+    article_id, stored = store_story(
+        db, story, analyses, topics_pending=topics is None, changes_pending=changes_pending,
+    )
     if article_id is None:
         return "failed"
     if topics is not None:
@@ -170,8 +194,46 @@ def _retry_pending_topics(db, questions, default_provider) -> int:
     return done
 
 
+def _check_company_changes(db) -> int:
+    """Have the change model read the package stories that look like a deal or a
+    rename. Runs after the new stories, so it never delays them. Stops at the
+    first failure."""
+    if not updates_enabled():
+        return 0
+    done = 0
+    for story in stories_to_check(db):
+        if stop_requested.is_set() or not check_story(db, story):
+            break
+        done += 1
+    return done
+
+
+def _process_new_articles(db, new_articles, questions, default_provider, summary) -> None:
+    stories, attachments = assign_stories(db, new_articles)
+
+    for attachment in attachments:
+        db.table("articles").insert(article_row(
+            attachment.article,
+            duplicate_of=attachment.lead_id,
+            duplicate_similarity=attachment.similarity,
+        )).execute()
+        summary["attached"] += 1
+
+    asset_pool = analysis_pool(db)
+    changes = current_changes(db)
+
+    for done, story in enumerate(stories):
+        if stop_requested.is_set():
+            logger.info("Shutting down, leaving %d stories for the next cycle", len(stories) - done)
+            break
+        outcome = _process_story(db, story, asset_pool, questions, default_provider, changes)
+        summary[outcome] += 1
+
+
 def process_news_cycle():
-    summary = {"processed": 0, "low_severity": 0, "failed": 0, "attached": 0, "late_topics": 0}
+    summary = {
+        "processed": 0, "low_severity": 0, "failed": 0, "attached": 0, "late_topics": 0, "change_checks": 0,
+    }
     db = get_db()
     registry = get_registry()
     if len(registry) == 0:
@@ -185,27 +247,9 @@ def process_news_cycle():
     articles = fetch_articles()
     new_articles = filter_new_articles(db, articles)
     logger.info("Fetched %d fresh articles, %d not seen before", len(articles), len(new_articles))
-    if not new_articles:
-        return summary
+    if new_articles:
+        _process_new_articles(db, new_articles, questions, default_provider, summary)
 
-    stories, attachments = assign_stories(db, new_articles)
-
-    for attachment in attachments:
-        db.table("articles").insert(article_row(
-            attachment.article,
-            duplicate_of=attachment.lead_id,
-            duplicate_similarity=attachment.similarity,
-        )).execute()
-        summary["attached"] += 1
-
-    asset_pool = analysis_pool(db)
-
-    for done, story in enumerate(stories):
-        if stop_requested.is_set():
-            logger.info("Shutting down, leaving %d stories for the next cycle", len(stories) - done)
-            break
-        outcome = _process_story(db, story, asset_pool, questions, default_provider)
-        summary[outcome] += 1
-
+    summary["change_checks"] = _check_company_changes(db)
     logger.info("Cycle complete: %s", summary)
     return summary

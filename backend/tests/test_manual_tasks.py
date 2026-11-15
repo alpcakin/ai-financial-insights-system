@@ -683,3 +683,27 @@ def test_a_low_story_stays_out_of_a_default_feed(world):
     world.run()
     assert world.db.rows("user_news_feed") == []
     assert len(world.db.rows("articles")) == 1
+
+
+# ── Company changes (journal 2.76) ───────────────────────────────────────────
+
+def test_a_users_model_reads_the_company_changes_but_their_news_never_writes_them(world):
+    world.feeds[URL] = _rss("Wiz")
+    world.db.tables["company_changes"] = [{
+        "id": "c1", "asset_symbol": "MSFT", "kind": "acquires", "party": "Wiz", "new_name": None,
+        "status": "completed", "announced_on": "2025-03-18", "effective_on": "2026-03-11", "keywords": ["Wiz"],
+        "superseded_at": None,
+    }]
+    provider = world.providers["u1-m1"]
+    prompts = []
+    complete = provider.complete
+    provider.complete = lambda s, u: (prompts.append(u), complete(s, u))[1]
+
+    with patch.object(settings, "change_model", "claude-sonnet-5-5"), \
+            patch.object(settings, "anthropic_api_key", "sk-system"), \
+            patch("app.services.company_changes._ask_change_model") as ask:
+        world.run()
+
+    assert "- Wiz: acquired by Microsoft Corporation (MSFT) on 2026-03-11." in prompts[0]
+    assert world.db.rows("articles")[0].get("changes_pending_since") is None
+    ask.assert_not_called()

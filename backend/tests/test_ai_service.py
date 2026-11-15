@@ -5,6 +5,7 @@ import pytest
 
 from app.services.ai import ProviderRegistry, set_registry
 from app.services.ai_service import (
+    BACKGROUND_HEADER,
     MAX_ATTEMPTS,
     MIN_SEVERITY,
     RETRY_BASE_DELAY,
@@ -95,6 +96,41 @@ def test_prompt_lists_other_reports_of_the_same_event():
         {"source": "CNBC", "title": "Apple tops forecasts", "description": "iPhone sales up"},
     ])
     assert 'OTHER REPORTS OF THE SAME EVENT:\n- CNBC: "Apple tops forecasts" - "iPhone sales up"' in prompt
+
+
+def test_company_changes_sit_between_the_reports_and_the_asset_list():
+    reports = [{"source": "CNBC", "title": "t", "description": "d"}]
+    prompt = build_user_prompt("Wiz wins", "Cert", ASSET_POOL, reports, ["Wiz: acquired by Alphabet Inc. (GOOGL) on 2026-03-11."])
+    assert (
+        '- CNBC: "t" - "d"\n\n'
+        f"{BACKGROUND_HEADER}\n- Wiz: acquired by Alphabet Inc. (GOOGL) on 2026-03-11.\n\n"
+        "ACTIVE ASSETS IN SYSTEM (symbol: name):"
+    ) in prompt
+
+
+def test_the_background_header_is_the_one_2_32_measured():
+    assert BACKGROUND_HEADER == (
+        "BACKGROUND (verified facts that may be newer than your training data). A fact here does not make "
+        "a company relevant on its own; include a company only if this article itself materially affects it:"
+    )
+
+
+def test_a_prompt_without_company_changes_is_the_frozen_text():
+    plain = build_user_prompt("T", "D", {"AAPL": "Apple Inc."})
+    assert build_user_prompt("T", "D", {"AAPL": "Apple Inc."}, None, []) == plain
+    assert "BACKGROUND" not in plain
+
+
+def test_analyze_all_passes_company_changes_to_every_provider():
+    prompts = []
+    providers = []
+    for name in ("openai", "gemini"):
+        provider = FakeProvider(name, [json.dumps(VALID_RESPONSE)])
+        complete = provider.complete
+        provider.complete = lambda s, u, complete=complete: (prompts.append(u), complete(s, u))[1]
+        providers.append(provider)
+    analyze_article_all("T", "D", ASSET_POOL, providers=providers, background=["Wiz: acquired."])
+    assert len(prompts) == 2 and all("- Wiz: acquired." in p for p in prompts)
 
 
 def test_single_report_prompt_is_unchanged_by_grouping():
