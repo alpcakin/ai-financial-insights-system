@@ -8,7 +8,6 @@ import pytest
 
 from app.core import key_vault
 from app.core.config import settings
-from app.services.ai_service import TOPIC_SYSTEM_PROMPT
 from app.services.dedup_service import GroupingUnavailable
 from app.tasks import manual_tasks
 from app.tasks.manual_tasks import due_urls, process_manual_cycle
@@ -164,9 +163,24 @@ def test_the_latest_fetch_among_followers_counts():
     assert due_urls(followers, NOW) == set()
 
 
-def test_a_source_waiting_for_its_first_read_keeps_the_publisher_limit():
-    assert due_urls([_source("u1", needs_baseline=True, last_fetched_at=_ago(3))], NOW) == set()
-    assert due_urls([_source("u1", needs_baseline=True, last_fetched_at=_ago(5))], NOW) == {URL}
+def test_a_source_waiting_for_its_first_read_is_read_on_the_next_pass():
+    assert due_urls([_source("u1", needs_baseline=True, last_fetched_at=_ago(0))], NOW) == set()
+    assert due_urls([_source("u1", needs_baseline=True, last_fetched_at=_ago(1))], NOW) == {URL}
+
+
+def test_a_feed_can_be_read_every_minute_even_when_passes_drift_a_little():
+    source = _source("u1", fetch_interval_minutes=1, last_fetched_at=(NOW - timedelta(seconds=58)).isoformat())
+    assert due_urls([source], NOW) == {URL}
+    early = _source("u1", fetch_interval_minutes=1, last_fetched_at=(NOW - timedelta(seconds=30)).isoformat())
+    assert due_urls([early], NOW) == set()
+
+
+def test_the_apps_own_feeds_keep_five_minutes_however_they_were_added():
+    app_feed = manual_tasks.FEEDS[0].url
+    sources = [_source("u1", url=app_feed, fetch_interval_minutes=1, last_fetched_at=_ago(3))]
+    assert due_urls(sources, NOW) == set()
+    sources = [_source("u1", url=app_feed, fetch_interval_minutes=1, last_fetched_at=_ago(5))]
+    assert due_urls(sources, NOW) == {app_feed}
 
 
 # ── Isolation ────────────────────────────────────────────────────────────────
@@ -586,20 +600,18 @@ def _follow(world, user_id, topic_id, name):
 
 
 class _TopicModel(FakeProvider):
-    """Analyzes like the others; answers topic questions with ``related`` keys, or fails when it is None."""
+    """Analyzes like the others; its analysis carries ``related_topics`` keys, none when it is None."""
 
     def __init__(self, name, related):
-        super().__init__(name, responses=[_answer()] * 50)
-        self.related = related
-        self.topic_calls = 0
+        answer = json.loads(_answer())
+        if related is not None:
+            answer["related_topics"] = related
+        super().__init__(name, responses=[json.dumps(answer)] * 50)
+        self.prompts = []
 
     def complete(self, system_prompt, user_prompt):
-        if system_prompt != TOPIC_SYSTEM_PROMPT:
-            return super().complete(system_prompt, user_prompt)
-        self.topic_calls += 1
-        if self.related is None:
-            raise RuntimeError("down")
-        return json.dumps({"related": self.related})
+        self.prompts.append(user_prompt)
+        return super().complete(system_prompt, user_prompt)
 
 
 def test_a_story_matching_a_followed_topic_reaches_the_owner_and_says_why(world):
@@ -632,14 +644,16 @@ def test_the_users_own_topic_model_answers_instead_of_snap(world):
     world.providers["u1-m2"] = _TopicModel("u1-m2", related=["t2"])
     with patch(SNAP, side_effect=AssertionError("Snap was asked")):
         world.run()
-    assert world.providers["u1-m2"].topic_calls == 1
+    topic_model = world.providers["u1-m2"]
+    assert topic_model.calls == 1
+    assert '{"t1": "Software", "t2": "New York"}' in topic_model.prompts[0]
     rows = {r["topic_id"]: r for r in world.db.rows("article_topics")}
     assert rows["t-ny"]["matched"] is True and rows["t-ny"]["matched_by"] == "u1-m2"
     assert rows["t-ny"]["probability"] is None
     assert world.db.rows("user_news_feed")[0]["topic_ids"] == ["t-ny"]
 
 
-def test_when_the_topic_model_fails_snap_answers(world):
+def test_when_the_topic_model_gives_no_topics_snap_answers(world):
     _follow(world, "u1", "t-ny", "New York")
     world.db.rows("users")[0]["manual_topic_model_id"] = "u1-m2"
     world.db.add("user_models", _model("u1", "m2"))
@@ -648,6 +662,31 @@ def test_when_the_topic_model_fails_snap_answers(world):
         world.run()
     snap.assert_called_once()
     assert {r["matched_by"] for r in world.db.rows("article_topics")} == {"snap"}
+    assert len(world.db.rows("article_analyses")) == 2
+
+
+def test_when_the_topic_model_fails_to_analyze_snap_answers(world):
+    _follow(world, "u1", "t-ny", "New York")
+    world.db.rows("users")[0]["manual_topic_model_id"] = "u1-m2"
+    world.db.add("user_models", _model("u1", "m2"))
+    world.providers["u1-m2"] = FakeProvider("u1-m2", error=RuntimeError("down"))
+    with patch(SNAP, return_value={"c1": 0.1, "t-ny": 0.9}) as snap:
+        world.run()
+    snap.assert_called_once()
+    assert {r["matched_by"] for r in world.db.rows("article_topics")} == {"snap"}
+
+
+def test_only_the_topic_model_is_asked_about_topics(world):
+    _follow(world, "u1", "t-ny", "New York")
+    world.db.rows("users")[0]["manual_topic_model_id"] = "u1-m2"
+    world.db.add("user_models", _model("u1", "m2"))
+    world.providers["u1-m2"] = _TopicModel("u1-m2", related=[])
+    other = _TopicModel("u1-m1", related=None)
+    world.providers["u1-m1"] = other
+    with patch(SNAP, side_effect=AssertionError("Snap was asked")):
+        world.run()
+    assert "TOPICS THE READER FOLLOWS" in world.providers["u1-m2"].prompts[0]
+    assert "TOPICS THE READER FOLLOWS" not in other.prompts[0]
 
 
 def test_when_snap_is_down_the_story_waits_and_arrives_later_without_a_new_analysis(world):

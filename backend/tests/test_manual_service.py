@@ -419,11 +419,15 @@ def test_a_refresh_points_followers_at_the_current_list():
         users=[{"id": "u1", "manual_follow_package": True}, {"id": "u2", "manual_follow_package": False}],
         user_sources=[
             {"id": "old", "user_id": "u1", "url": "https://dropped.test/rss", "from_package": True},
-            {"id": "kept", "user_id": "u1", "url": manual_service.FEEDS[0].url, "from_package": True, "needs_baseline": False},
+            {
+                "id": "kept", "user_id": "u1", "url": manual_service.FEEDS[0].url, "from_package": True,
+                "needs_baseline": False, "fetch_interval_minutes": 15,
+            },
             {"id": "own", "user_id": "u2", "url": "https://dropped.test/rss", "from_package": False},
         ],
     )
     manual_service.refresh_package_sources(db)
     assert {r["url"] for r in db.rows("user_sources", user_id="u1")} == APP_FEEDS
     assert db.rows("user_sources", id="kept")[0]["needs_baseline"] is False
+    assert db.rows("user_sources", id="kept")[0]["fetch_interval_minutes"] == manual_service.PACKAGE_FEED_INTERVAL_MINUTES
     assert [r["id"] for r in db.rows("user_sources", user_id="u2")] == ["own"]

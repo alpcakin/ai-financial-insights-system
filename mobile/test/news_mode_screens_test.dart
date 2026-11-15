@@ -248,7 +248,7 @@ void main() {
       await tester.pumpAndSettle();
       final snapTile = find.ancestor(of: find.text('SubQ Snap').last, matching: find.byType(Row)).first;
       expect(find.descendant(of: snapTile, matching: find.byIcon(Icons.radio_button_checked_rounded)), findsOneWidget);
-      expect(find.text('One more call per article, on your account.'), findsNWidgets(2));
+      expect(find.text('In the same call as its analysis, no extra call.'), findsNWidgets(2));
       expect(tester.takeException(), isNull);
     });
 
@@ -397,6 +397,26 @@ void main() {
       await tester.pump();
       expect(manual.follows, [false]);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a chosen topic model says it answers inside its analysis', (tester) async {
+      const settings = ManualSettings(
+        packageEnabled: false, manualEnabled: true, groupingEnabled: false, topicModelId: 'm1', canStoreKeys: true,
+      );
+      await _pump(tester, const ManualModeScreen(), overrides(const ManualState(settings: settings, sources: _sources, models: _models)));
+      await _reveal(tester, find.text('Topic matching'));
+      expect(find.text('Mine, inside its analysis'), findsOneWidget);
+    });
+
+    testWidgets('a feed can be read every minute', (tester) async {
+      await _pump(tester, const ManualModeScreen(), overrides(const ManualState(settings: _settings, sources: _sources, models: _models)));
+      await _reveal(tester, find.text('Add a feed'));
+      await tester.tap(find.text('Add a feed'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Every 15 minutes'));
+      await tester.pumpAndSettle();
+      expect(find.text('Every minute'), findsWidgets);
+      expect(find.text('Every 2 minutes'), findsWidgets);
     });
 
     testWidgets('long explanations sit behind info icons', (tester) async {

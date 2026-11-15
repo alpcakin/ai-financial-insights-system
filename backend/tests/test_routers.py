@@ -504,7 +504,7 @@ def test_source_list_response_has_no_baseline(client, mock_db):
     assert r.status_code == 200 and "baseline_urls" not in r.json()[0]
 
 
-@pytest.mark.parametrize("interval", [4, 1441])
+@pytest.mark.parametrize("interval", [0, 1441])
 def test_source_interval_has_limits(client, interval):
     body = {"url": "https://x.test/rss", "fetch_interval_minutes": interval}
     assert client.post("/manual/sources", json=body).status_code == 422

@@ -2,9 +2,10 @@
 Which categories and user topics a story relates to, and who follows them.
 
 Snap answers for the package and, unless the user picked one of their own models,
-for a manual-mode user's stories (DEVELOPMENT_JOURNAL.md 2.71). A story whose
-matching failed is stored with topics_pending_since and asked about again by later
-cycles, without analyzing it again, for up to RETRY_WINDOW.
+for a manual-mode user's stories (DEVELOPMENT_JOURNAL.md 2.71). A user's own model
+answers inside its analysis instead (2.81, news_tasks.analyze_with_topics). A story
+whose matching failed is stored with topics_pending_since and asked about again by
+later cycles, with Snap and without analyzing it again, for up to RETRY_WINDOW.
 """
 
 import logging
@@ -14,8 +15,6 @@ from datetime import datetime, timedelta, timezone
 from supabase import Client
 
 from app.core.config import settings
-from app.services.ai import AIProvider
-from app.services.ai_service import match_topics
 from app.services.topic_matching import snap_probabilities
 
 logger = logging.getLogger(__name__)
@@ -61,23 +60,13 @@ def question_sets(db: Client, owner_id: str | None = None) -> tuple[dict[str, st
     return categories, topics
 
 
-def match_story(
-    lead: dict,
-    categories: dict[str, str],
-    topics: dict[str, str],
-    model: AIProvider | None = None,
-) -> TopicMatch | None:
-    """``model`` is a manual-mode user's own topic model; when it fails, Snap answers.
-    None means nobody could answer."""
-    if model is not None:
-        asked = {**categories, **topics}
-        related = match_topics(model, lead["title"], lead["description"] or "", asked)
-        if related is not None:
-            return TopicMatch(
-                [{"topic_id": t, "probability": None, "matched": t in related} for t in asked], model.name,
-            )
-        logger.warning("Topic model failed on %s, Snap answers instead", lead.get("url"))
+def model_match(asked: dict[str, str], related: set[str], model_name: str) -> TopicMatch:
+    """A user's model's answer: no probability, so no threshold."""
+    return TopicMatch([{"topic_id": t, "probability": None, "matched": t in related} for t in asked], model_name)
 
+
+def match_story(lead: dict, categories: dict[str, str], topics: dict[str, str]) -> TopicMatch | None:
+    """Snap's answer. None means it could not answer."""
     probabilities = snap_probabilities(lead, [categories, topics])
     if probabilities is None:
         return None

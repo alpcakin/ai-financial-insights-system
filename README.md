@@ -25,7 +25,7 @@ To add a provider: subclass `AIProvider` with a `complete(system_prompt, user_pr
 
 ## News pipeline
 
-Every `NEWS_FETCH_INTERVAL_MINUTES` (15 is a good value) the backend runs one cycle (`backend/app/tasks/news_tasks.py`):
+Every `NEWS_FETCH_INTERVAL_MINUTES` (the app runs it at 5) the backend runs one cycle (`backend/app/tasks/news_tasks.py`):
 
 1. **Fetch** (`news_service.py`): the feeds in `FEEDS` are read with conditional requests, so an unchanged feed costs a 304. Items older than 24 hours, sponsored items and non-web links are dropped; URLs are normalized so the same article reached through two feeds is seen once.
 2. **Group** (`dedup_service.py`): each new article is embedded (`text-embedding-3-small`) and compared with the first article ("lead") of every stored story, and with stories started earlier in the same cycle. All leads at or above `DEDUP_CANDIDATE_THRESHOLD` (0.50) whose publication time is within `DEDUP_WINDOW_HOURS` (48) of the new article go to SubQ Snap (`subq-snap-1.1`, key in `SUBQ_API_KEY`). Each candidate is a separate request that returns the probability of the same event; the highest one at or above `DEDUP_MATCH_PROBABILITY` (0.936) joins the story, and a failed request counts as "not the same". Similarity alone never joins a story: recurring reports such as daily roundups read almost the same from one day to the next. Users' own API keys are never used here; manual mode can only turn this step on or off.
@@ -43,7 +43,7 @@ Categories are not in the analysis prompt. For every new story, SubQ Snap answer
 - Every asked topic is stored with its probability (`article_topics`); a feed entry keeps the followed topics that brought the story (`topic_ids`), shown on the card.
 - When Snap cannot answer, the story is stored and delivered by its assets, and later cycles ask Snap again, without analyzing it again, for up to 24 hours.
 - A user adds a topic by name (`POST /topics`). An existing category or topic is followed as it is; existing ones are suggested while typing (`GET /topics/search`). A new text first goes through one Snap request that rejects instructions and offensive text; the answer is kept per text, so the same text is never asked twice. Up to 10 own topics per user; at most 2 to 40 letters, digits, spaces and `& + - . , ' ( ) /`.
-- In manual mode Snap is asked about the 33 categories and the user's own topics only, on the user's own stories. The user can pick one of their models for this instead (`topic_model_id` in `/manual/settings`); it gets one shared prompt in `ai_service.py`, and Snap answers when it fails.
+- In manual mode Snap is asked about the 33 categories and the user's own topics only, on the user's own stories. The user can pick one of their models for this instead (`topic_model_id` in `/manual/settings`). That model answers inside its own analysis call: the categories and the user's topics, as short keys, go where the category list was before Snap, and the answer carries `related_topics`. Snap answers when it gives no list, and retries of stories still waiting for their topics always go to Snap.
 
 ## Company changes
 
@@ -60,8 +60,8 @@ The feed is a stored log: an entry is written when a story arrives and is not re
 
 A user can read their own RSS feeds with their own API keys, in a workspace no one else sees, instead of or alongside the shared package (`/manual/*`, `backend/app/tasks/manual_tasks.py`). Portfolio, watchlist and topics are shared by both modes.
 
-- **Sources:** up to 20 RSS or Atom addresses, each checked when added and read at its own interval (at least 5 minutes). One URL is fetched once however many users follow it. What a feed holds when it is added or switched back on counts as seen; only what arrives later is analyzed.
-- **The app's feeds:** one switch (`follow_package_feeds` in `/manual/settings`) adds the package's feeds as the user's sources (`user_sources.from_package`), read every 15 minutes with the user's own models. It points at `FEEDS` rather than copying it: every backend start adds feeds the app gained and drops the ones it lost. These rows do not count towards the 20 and cannot be changed one by one; a feed the user had already added stays theirs.
+- **Sources:** up to 20 RSS or Atom addresses, each checked when added and read at its own interval (at least 1 minute, which needs `MANUAL_CHECK_INTERVAL_MINUTES=1`; the app's own feeds keep at least 5 minutes however they were added, because this server also reads them for the package). One URL is fetched once however many users follow it. What a feed holds when it is added or switched back on counts as seen; only what arrives later is analyzed.
+- **The app's feeds:** one switch (`follow_package_feeds` in `/manual/settings`) adds the package's feeds as the user's sources (`user_sources.from_package`), read every 5 minutes, like the package, with the user's own models. It points at `FEEDS` rather than copying it: every backend start adds feeds the app gained and drops the ones it lost. These rows do not count towards the 20 and cannot be changed one by one; a feed the user had already added stays theirs.
 - **Models:** OpenAI, Gemini, Claude or an OpenAI-compatible https address. Adding one makes one test call that has to pass the shared validation. Every working model analyzes every new story with the shared prompt; the feed and alerts use the one the user picked, and fall back only among their own models, flagged.
 - **Grouping:** off by default, so every article is its own card. Turning it on runs the same frozen system as the package (system keys, embedding and Snap), comparing only within the user's own articles. If it cannot run, the user's articles wait for the next fetch instead of being analyzed one by one.
 - **Failures:** a rejected key or an empty account stops that model until the user tries it again, with a notification; with no working model left, fetching stops. Rate limits and outages wait for the next fetch. A story every model failed on alone appears marked "Analysis failed".
@@ -114,7 +114,7 @@ To run it, set `USER_KEY_ENCRYPTION_KEY` and `MANUAL_CHECK_INTERVAL_MINUTES` (se
 cd backend
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env   # Fill in your API keys; set NEWS_FETCH_INTERVAL_MINUTES=15 to start the news cycle
+cp .env.example .env   # Fill in your API keys; set NEWS_FETCH_INTERVAL_MINUTES=5 to start the news cycle
 .venv/bin/uvicorn app.main:app --reload
 ```
 
@@ -174,5 +174,6 @@ Run the migration files in order against your Supabase project. The number prefi
 | `028_topics.sql` | topics: `categories.kind` (fixed category or user topic; level-3 categories become topics), `topic_checks`, `article_topics`, `articles.topics_pending_since`, `user_news_feed.topic_ids`, `users.manual_topic_model_id` (apply before starting the new backend) |
 | `029_company_changes.sql` | company changes: `company_changes` with 84 seed records, `replace_company_change`, `articles.changes_pending_since` (apply before starting the new backend) |
 | `030_follow_app_feeds.sql` | manual mode can follow the app's feeds: `users.manual_follow_package`, `user_sources.from_package` (apply before starting the new backend) |
+| `031_one_minute_feeds.sql` | a user's own feed can be read every minute: the lower limit on `user_sources.fetch_interval_minutes` goes from 5 to 1 (apply before starting the new backend) |
 
 Row-level security is enabled on every user-owned table. The backend connects with the service role key and is therefore not restricted by those policies; access control is enforced in the API layer through JWT authentication. RLS exists as a second line of defence so that a leaked anon key, or any client talking to Supabase directly, can only reach the rows of the authenticated user.

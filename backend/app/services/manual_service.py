@@ -21,8 +21,9 @@ logger = logging.getLogger(__name__)
 
 MAX_SOURCES = 20
 
-#: How often a follower reads the app's feeds; the news package uses the same.
-PACKAGE_FEED_INTERVAL_MINUTES = 15
+#: How often a follower reads the app's feeds: what the news package uses
+#: (NEWS_FETCH_INTERVAL_MINUTES) and the least manual mode allows for them.
+PACKAGE_FEED_INTERVAL_MINUTES = 5
 
 SOURCE_COLUMNS = "id, url, name, fetch_interval_minutes, enabled, last_fetched_at, last_error, created_at, from_package"
 #: Everything except the encrypted key, which never leaves the backend.
@@ -141,13 +142,21 @@ def _follow_package_feeds(db: Client, user_id: str, follow: bool) -> None:
 
 
 def refresh_package_sources(db: Client) -> None:
-    """Keep followers pointed at the current FEEDS: new feeds are added, removed ones dropped.
-    FEEDS lives in code, so running this at startup is enough."""
+    """Keep followers pointed at the current FEEDS and interval: new feeds are added,
+    removed ones dropped. Both live in code, so running this at startup is enough."""
     urls = {feed.url for feed in FEEDS}
-    rows = db.table("user_sources").select("id, url").eq("from_package", True).execute().data
+    rows = db.table("user_sources").select("id, url, fetch_interval_minutes").eq("from_package", True).execute().data
     stale = [row["id"] for row in rows if row["url"] not in urls]
     if stale:
         db.table("user_sources").delete().in_("id", stale).execute()
+    other_interval = [
+        row["id"] for row in rows
+        if row["url"] in urls and row["fetch_interval_minutes"] != PACKAGE_FEED_INTERVAL_MINUTES
+    ]
+    if other_interval:
+        db.table("user_sources").update({"fetch_interval_minutes": PACKAGE_FEED_INTERVAL_MINUTES}).in_(
+            "id", other_interval,
+        ).execute()
     followers = db.table("users").select("id").eq("manual_follow_package", True).execute().data
     if followers:
         db.table("user_sources").upsert(

@@ -45,12 +45,12 @@ class SourceResponse(BaseModel):
 class AddSourceRequest(BaseModel):
     url: Url
     name: ShortText | None = None
-    fetch_interval_minutes: int = Field(default=15, ge=5, le=1440)
+    fetch_interval_minutes: int = Field(default=15, ge=1, le=1440)
 
 
 class UpdateSourceRequest(BaseModel):
     name: ShortText | None = None
-    fetch_interval_minutes: int | None = Field(default=None, ge=5, le=1440)
+    fetch_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
     enabled: bool | None = None
 
 

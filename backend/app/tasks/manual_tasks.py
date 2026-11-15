@@ -22,7 +22,7 @@ from app.services.company_changes import current_changes
 from app.services.dedup_service import GroupingUnavailable, Story, assign_stories
 from app.services.feed_service import deliver_unanalyzed, distribute_owned_article
 from app.services.manual_feeds import fetch_feed, forget_other_feeds
-from app.services.news_service import filter_new_articles, parse_feed, read_feed_title
+from app.services.news_service import FEEDS, filter_new_articles, parse_feed, read_feed_title
 from app.services.notification_service import batch_fetch_fcm_tokens, notify_alert_with_token
 from app.services.story_topics import (
     clear_pending,
@@ -45,9 +45,21 @@ from app.tasks.news_tasks import (
 
 logger = logging.getLogger(__name__)
 
-#: Publishers can block an address that asks too often, and that would stop the
-#: feed for every user. It also holds for a source waiting for its first read.
-MIN_FETCH_INTERVAL = timedelta(minutes=5)
+#: A user's own feed can be read as often as the cycle runs (MANUAL_CHECK_INTERVAL_MINUTES):
+#: it may be their own feed and they want it at once. A source waiting for its first
+#: read is read on the next pass.
+MIN_FETCH_INTERVAL = timedelta(minutes=1)
+
+#: The app's own feeds keep 5 minutes whoever follows them and however they were added:
+#: this server also reads them for the package, so a publisher blocking it would stop
+#: the package too. Read every 5 minutes in 2.38, a story was found 2-4 minutes after it
+#: appeared on average and none was lost; Cointelegraph's CDN keeps a copy for 5 minutes.
+APP_FEED_MIN_INTERVAL = timedelta(minutes=5)
+_APP_FEED_URLS = {feed.url for feed in FEEDS}
+
+#: Passes are a minute apart give or take a moment; without some slack a source read
+#: at 12:00:01 would miss the 12:01:00 pass and wait a whole extra minute.
+_SLACK = timedelta(seconds=15)
 
 #: A date this far ahead is not clock drift. Such an item would sit at the top of
 #: a sorted list. The package keeps accepting them until its 7-day test has ended.
@@ -85,7 +97,9 @@ def due_urls(sources: list[dict], now: datetime) -> set[str]:
             interval = MIN_FETCH_INTERVAL
         else:
             interval = timedelta(minutes=min(s["fetch_interval_minutes"] for s in followers))
-        if not fetched or now - max(fetched) >= interval:
+        if url in _APP_FEED_URLS:
+            interval = max(interval, APP_FEED_MIN_INTERVAL)
+        if not fetched or now - max(fetched) >= interval - _SLACK:
             due.add(url)
     return due
 
@@ -195,12 +209,13 @@ def _process_owned_story(
     return True
 
 
-def _retry_pending_topics(db, user: dict, questions, topic_model) -> None:
-    """Ask again about the user's stories whose topics are missing; one that matches
-    a topic they follow reaches them now. Stops at the first failure."""
+def _retry_pending_topics(db, user: dict, questions) -> None:
+    """Ask Snap again about the user's stories whose topics are missing; one that
+    matches a topic they follow reaches them now. Stops at the first failure. Their
+    own topic model would have to analyze the story again, so it is not asked."""
     user_id = user["id"]
     for article in pending_stories(db, owner_id=user_id):
-        topics = match_story(article, *questions, topic_model)
+        topics = match_story(article, *questions)
         if topics is None:
             return
         store_match(db, article["id"], topics)
@@ -221,7 +236,7 @@ def _run_turn(db, user: dict, models: list[dict], articles: list[dict]) -> None:
     # Snap answers when the user picked no topic model, or the one they picked is stopped.
     topic_model = next((p for p in providers if p.name == user.get("manual_topic_model_id")), None)
     questions = question_sets(db, owner_id=user_id)
-    _retry_pending_topics(db, user, questions, topic_model)
+    _retry_pending_topics(db, user, questions)
 
     new = sorted(filter_new_articles(db, articles, owner_id=user_id), key=lambda a: a["published_at"])
     if not new:

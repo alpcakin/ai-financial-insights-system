@@ -1,19 +1,17 @@
-import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from app.services import story_topics
-from app.services.ai_service import TOPIC_SYSTEM_PROMPT
 from app.services.story_topics import (
     clear_pending,
     match_story,
+    model_match,
     pending_owners,
     pending_stories,
     question_sets,
     store_match,
     topic_followers,
 )
-from tests.conftest import FakeProvider
 from tests.fake_db import FakeDB
 
 LEAD = {"title": "Fed holds", "description": None, "source": "CNBC", "url": "u"}
@@ -62,14 +60,10 @@ def test_no_answer_from_snap_is_no_match_at_all():
         assert match_story(LEAD, {"c-bank": "Banking"}, {}) is None
 
 
-def test_a_users_model_gets_an_empty_description_not_none():
-    model = FakeProvider("m1", [json.dumps({"related": []})])
-    seen = []
-    original = model.complete
-    model.complete = lambda system, user: (seen.append(user), original(system, user))[1]
-    match = match_story(LEAD, {"c-bank": "Banking"}, {}, model)
-    assert 'Description: ""' in seen[0]
-    assert match.matched_ids == set() and match.matched_by == "m1"
+def test_a_users_model_answer_keeps_every_asked_topic_without_a_probability():
+    match = model_match({"c-bank": "Banking", "t-ny": "New York"}, {"t-ny"}, "m1")
+    assert match.matched_ids == {"t-ny"} and match.matched_by == "m1"
+    assert {r["topic_id"]: r["probability"] for r in match.rows} == {"c-bank": None, "t-ny": None}
 
 
 def test_store_match_keeps_every_asked_topic_and_who_answered():
@@ -105,12 +99,3 @@ def test_waiting_stories_are_scoped_to_their_workspace_and_given_up_after_a_day(
 
 def test_the_retry_window_is_a_day():
     assert story_topics.RETRY_WINDOW == timedelta(hours=24)
-
-
-def test_a_topic_model_is_asked_with_the_topic_prompt():
-    model = FakeProvider("m1", [json.dumps({"related": ["t1"]})])
-    calls = []
-    original = model.complete
-    model.complete = lambda system, user: (calls.append(system), original(system, user))[1]
-    assert match_story(LEAD, {"c-bank": "Banking"}, {}, model).matched_ids == {"c-bank"}
-    assert calls == [TOPIC_SYSTEM_PROMPT]

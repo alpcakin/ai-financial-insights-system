@@ -30,6 +30,8 @@ const _kindNames = {
 };
 
 const _intervals = {
+  1: 'Every minute',
+  2: 'Every 2 minutes',
   5: 'Every 5 minutes',
   15: 'Every 15 minutes',
   30: 'Every 30 minutes',
@@ -278,7 +280,8 @@ class _ManualModeScreenState extends ConsumerState<ManualModeScreen> {
         icon: Icons.rss_feed_rounded,
         title: 'Feeds',
         info: 'Add an RSS or Atom address. What a feed already holds counts as seen; only what arrives '
-            'afterwards is analyzed.',
+            'afterwards is analyzed. Your own feeds can be read as often as every minute; the app\'s own feeds '
+            'at most every 5 minutes.',
       ),
       _followTile(settings, followed),
       for (final source in own) _sourceRow(source),
@@ -334,12 +337,16 @@ class _ManualModeScreenState extends ConsumerState<ManualModeScreen> {
                         const InfoTip(
                           'Decides which categories and topics of yours a new article relates to. SubQ Snap does '
                           'it on our key, only on your own articles; it was measured on our sources. Once you add '
-                          'a model, you can pick it instead, for one more call per article on your account. If '
-                          'your model fails on an article, Snap answers for it.',
+                          'a model, you can pick it instead: it answers in the same call as its analysis, so it '
+                          'costs no extra call, but this way was not measured. If it gives no answer, Snap answers '
+                          'for that article.',
                         ),
                       ],
                     ),
-                    Text(topicModel?.label ?? 'SubQ Snap', style: GoogleFonts.inter(fontSize: 12, color: _muted)),
+                    Text(
+                      topicModel == null ? 'SubQ Snap' : '${topicModel.label}, inside its analysis',
+                      style: GoogleFonts.inter(fontSize: 12, color: _muted),
+                    ),
                   ],
                 ),
               ),
@@ -769,7 +776,7 @@ class _TopicMatcherSheet extends StatelessWidget {
             for (final m in models)
               _ChoiceRow(
                 title: m.label,
-                subtitle: 'One more call per article, on your account.',
+                subtitle: 'In the same call as its analysis, no extra call.',
                 selected: selected == m.id,
                 onTap: () => Navigator.pop(context, m.id),
               ),

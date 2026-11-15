@@ -22,6 +22,7 @@ from app.services.news_service import fetch_articles, filter_new_articles
 from app.services.story_topics import (
     clear_pending,
     match_story,
+    model_match,
     now_iso,
     pending_stories,
     question_sets,
@@ -118,16 +119,19 @@ def send_impact_alerts(db, article_id: str, stored: list[dict], assignments: dic
 def analyze_with_topics(
     story: Story, asset_pool, questions, providers=None, failures=None, topic_model=None, changes=(),
 ):
-    """The story's analyses and its topic match, asked at the same time. ``changes``
-    are the current company changes; those the story names go into the prompt."""
+    """The story's analyses and its topic match. Snap is asked at the same time as the
+    analyses. A manual-mode user's ``topic_model`` answers inside its own analysis
+    instead (DEVELOPMENT_JOURNAL.md 2.81), and Snap only when that answer is missing.
+    ``changes`` are the current company changes; those the story names go into the prompt."""
     lead = story.lead
     reports = [report_of(m) for m in story.members[: MAX_REPORTS_PER_ANALYSIS - 1]]
     background = background_lines(changes, story_text(lead, reports), asset_pool)
     if background:
         logger.info("Company changes in the prompt for %s: %s", lead["url"], background)
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        topics = pool.submit(match_story, lead, *questions, topic_model)
-        analyses = analyze_article_all(
+    asked = {**questions[0], **questions[1]}
+
+    def analyze() -> dict[str, dict]:
+        return analyze_article_all(
             title=lead["title"],
             description=lead["description"],
             asset_pool=asset_pool,
@@ -135,8 +139,21 @@ def analyze_with_topics(
             other_reports=reports or None,
             failures=failures,
             background=background or None,
+            topic_provider=topic_model.name if topic_model else None,
+            topics=asked if topic_model else None,
         )
-        return analyses, topics.result()
+
+    if topic_model is not None:
+        analyses = analyze()
+        related = analyses.get(topic_model.name, {}).get("related_topics")
+        if related is not None:
+            return analyses, model_match(asked, related, topic_model.name)
+        logger.warning("The topic model gave no topics for %s, Snap answers instead", lead["url"])
+        return analyses, match_story(lead, *questions)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        topics = pool.submit(match_story, lead, *questions)
+        return analyze(), topics.result()
 
 
 def _process_story(db, story: Story, asset_pool, questions, default_provider, changes) -> str:
