@@ -439,8 +439,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               child: Text(
                 'Every article of the news package is analyzed by all available models. '
                 'Your feed and alerts show the view of the model you pick here; if it has '
-                'no result for an article, another model\'s analysis is shown and marked. '
-                'Your own sources use the model you pick under News Mode.',
+                'no result for an article, another model\'s analysis is shown and marked.',
                 style: GoogleFonts.inter(
                   fontSize: 11,
                   color: const Color(0xFF94A3B8),

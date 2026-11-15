@@ -68,12 +68,15 @@ class ArticleCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 5),
-                    Text(
-                      article.sentimentLabel!,
-                      style: GoogleFonts.inter(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: _sentimentColor(),
+                    Flexible(
+                      child: Text(
+                        article.sentimentLabel!,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: _sentimentColor(),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),

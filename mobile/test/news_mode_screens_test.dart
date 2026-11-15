@@ -128,14 +128,67 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    test('a key is only called unencrypted when it would cross a network', () {
+      expect(sendsKeysUnencrypted('http://localhost:8000'), isFalse);
+      expect(sendsKeysUnencrypted('http://127.0.0.1:8000'), isFalse);
+      expect(sendsKeysUnencrypted('https://example.com/api'), isFalse);
+      expect(sendsKeysUnencrypted('http://192.168.1.20:8000'), isTrue);
+      expect(sendsKeysUnencrypted('http://10.0.2.2:8000'), isTrue);
+      expect(sendsKeysUnencrypted('http://localhost.example.com'), isTrue);
+    });
+
+    testWidgets('the source count is not shown, and adding a 21st says why it cannot', (tester) async {
+      final full = [
+        for (var i = 0; i < 20; i++)
+          UserSource(id: 's$i', url: 'https://x.test/$i', name: 'Feed $i', fetchIntervalMinutes: 15, enabled: true),
+      ];
+      await _pump(tester, const ManualModeScreen(), overrides(ManualState(settings: _settings, sources: full, models: _models)));
+      expect(find.textContaining('/20'), findsNothing);
+      await tester.ensureVisible(find.text('Add').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add').first);
+      await tester.pump();
+      expect(find.text('You can have at most 20 sources.'), findsOneWidget);
+      expect(find.text('Add a source'), findsNothing);
+    });
+
+    testWidgets('without a model, topic matching is a note, not a one-option choice', (tester) async {
+      await _pump(tester, const ManualModeScreen(), overrides(const ManualState(settings: _settings, sources: _sources)));
+      await tester.scrollUntilVisible(find.textContaining('Once you add a model'), 200, scrollable: find.byType(Scrollable).first);
+      expect(find.text('TOPIC MATCHING'), findsOneWidget);
+      expect(find.text('SubQ Snap'), findsNothing);
+      expect(find.byIcon(Icons.radio_button_checked_rounded), findsNothing);
+    });
+
     testWidgets('warns when my sources is on without a source or a working model', (tester) async {
       await _pump(tester, const ManualModeScreen(), overrides(const ManualState(settings: _settings)));
       expect(find.text('My sources needs at least one source and one working model.'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('with my sources off, shows only the two switches', (tester) async {
+      const settings = ManualSettings(packageEnabled: true, manualEnabled: false, groupingEnabled: false, canStoreKeys: true);
+      await _pump(tester, const ManualModeScreen(), overrides(const ManualState(settings: settings)));
+      expect(find.text('News package'), findsOneWidget);
+      expect(find.text('My sources'), findsOneWidget);
+      for (final hidden in ['SAME-EVENT GROUPING', 'MY MODELS', 'TOPIC MATCHING', 'Add']) {
+        expect(find.text(hidden), findsNothing);
+      }
+      expect(find.textContaining('MY SOURCES'), findsNothing);
+      expect(find.text('Your sources and models are kept while My sources is off.'), findsNothing);
+      expect(find.text('My sources needs at least one source and one working model.'), findsNothing);
+    });
+
+    testWidgets('with my sources off, says what was added is kept', (tester) async {
+      const settings = ManualSettings(packageEnabled: true, manualEnabled: false, groupingEnabled: false, canStoreKeys: true);
+      await _pump(tester, const ManualModeScreen(), overrides(const ManualState(settings: settings, sources: _sources, models: _models)));
+      expect(find.text('Your sources and models are kept while My sources is off.'), findsOneWidget);
+      expect(find.text('Feed with a long name'), findsNothing);
+      expect(find.text('Mine'), findsNothing);
+    });
+
     testWidgets('says so when the server cannot store keys', (tester) async {
-      const settings = ManualSettings(packageEnabled: true, manualEnabled: false, groupingEnabled: false, canStoreKeys: false);
+      const settings = ManualSettings(packageEnabled: true, manualEnabled: true, groupingEnabled: false, canStoreKeys: false);
       await _pump(tester, const ManualModeScreen(), overrides(const ManualState(settings: settings)));
       await tester.scrollUntilVisible(find.text('This server cannot store API keys yet.'), 200, scrollable: find.byType(Scrollable).first);
       expect(find.text('This server cannot store API keys yet.'), findsOneWidget);

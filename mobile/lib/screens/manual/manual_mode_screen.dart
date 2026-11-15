@@ -29,6 +29,16 @@ const _intervals = {
   1440: 'Once a day',
 };
 
+/// The server enforces the same limit.
+const _maxSources = 20;
+
+/// Whether a key typed here would cross a network in plain text. A server on this
+/// machine is reached without one.
+bool sendsKeysUnencrypted(String baseUrl) {
+  final uri = Uri.parse(baseUrl);
+  return uri.scheme != 'https' && !const {'localhost', '127.0.0.1'}.contains(uri.host);
+}
+
 /// Where a user chooses what fills their feed: the shared news package, their own
 /// sources read with their own models, or both.
 class ManualModeScreen extends ConsumerStatefulWidget {
@@ -136,72 +146,86 @@ class _ManualModeScreenState extends ConsumerState<ManualModeScreen> {
                     'Changes apply from now on: what is already in your feed stays. Both can be on. '
                     'News only reaches the feed when it matches your portfolio, watchlist or topics.',
                   ),
-                  if (settings.manualEnabled && (state.sources.isEmpty || !state.hasWorkingModel))
-                    _warningNote('My sources needs at least one source and one working model.'),
-                  _heading('SAME-EVENT GROUPING'),
-                  _card(_switch(
-                    title: 'Group reports of the same event',
-                    subtitle: settings.groupingEnabled
-                        ? 'On: reports of one event become one card and are analyzed once.'
-                        : 'Off: every article is its own card and is analyzed separately.',
-                    value: settings.groupingEnabled,
-                    onChanged: (v) => _run(() => _notifier.updateSettings(_token, groupingEnabled: v)),
-                  )),
-                  _note(
-                    'Turning it on uses our measured system, on our keys, only among your own articles: '
-                    'text-embedding-3-small finds candidates, SubQ Snap decides. Your articles\' titles and '
-                    'descriptions then go to OpenAI and SubQ. It was measured on our 7 sources, not on yours, '
-                    'and a wrong match keeps an article out of analysis. It applies to new articles only. While '
-                    'it is on and the system is down, your articles wait instead of being analyzed one by one.',
-                  ),
-                  _sectionHeader(
-                    'MY SOURCES',
-                    '${state.sources.length}/20',
-                    onAdd: state.sources.length >= 20 ? null : () => _openSheet(const _AddSourceSheet()),
-                  ),
-                  if (state.sources.isEmpty)
-                    _note('Add an RSS or Atom address. What the feed already holds counts as seen; '
-                        'only what arrives afterwards is analyzed.')
-                  else
-                    ...state.sources.map(_sourceTile),
-                  _sectionHeader(
-                    'MY MODELS',
-                    null,
-                    onAdd: settings.canStoreKeys ? () => _openSheet(const _AddModelSheet()) : null,
-                  ),
-                  if (!settings.canStoreKeys) _warningNote('This server cannot store API keys yet.'),
-                  if (state.models.isEmpty && settings.canStoreKeys)
-                    _note('Every model you add analyzes every new article from your sources, on your own '
-                        'account. Your feed shows the one you pick; open an article to compare the others.')
-                  else
-                    ...state.models.map((m) => _modelTile(m, settings.selectedModelId)),
-                  _heading('TOPIC MATCHING'),
-                  _card(Column(
-                    children: [
-                      _topicMatcherTile(
-                        'SubQ Snap',
-                        'Our measured system, on our key, only on your own articles.',
-                        selected: settings.topicModelId == null,
-                        onTap: () => _notifier.setTopicModel(_token, null),
+                  if (!settings.manualEnabled && (state.sources.isNotEmpty || state.models.isNotEmpty))
+                    _note('Your sources and models are kept while My sources is off.'),
+                  if (settings.manualEnabled) ...[
+                    if (state.sources.isEmpty || !state.hasWorkingModel)
+                      _warningNote('My sources needs at least one source and one working model.'),
+                    _heading('SAME-EVENT GROUPING'),
+                    _card(_switch(
+                      title: 'Group reports of the same event',
+                      subtitle: settings.groupingEnabled
+                          ? 'On: reports of one event become one card and are analyzed once.'
+                          : 'Off: every article is its own card and is analyzed separately.',
+                      value: settings.groupingEnabled,
+                      onChanged: (v) => _run(() => _notifier.updateSettings(_token, groupingEnabled: v)),
+                    )),
+                    _note(
+                      'Turning it on uses our measured system, on our keys, only among your own articles: '
+                      'text-embedding-3-small finds candidates, SubQ Snap decides. Your articles\' titles and '
+                      'descriptions then go to OpenAI and SubQ. It was measured on our 7 sources, not on yours, '
+                      'and a wrong match keeps an article out of analysis. It applies to new articles only. While '
+                      'it is on and the system is down, your articles wait instead of being analyzed one by one.',
+                    ),
+                    _sectionHeader(
+                      'MY SOURCES',
+                      null,
+                      onAdd: state.sources.length >= _maxSources
+                          ? () => _show('You can have at most $_maxSources sources.')
+                          : () => _openSheet(const _AddSourceSheet()),
+                    ),
+                    if (state.sources.isEmpty)
+                      _note('Add an RSS or Atom address. What the feed already holds counts as seen; '
+                          'only what arrives afterwards is analyzed.')
+                    else
+                      ...state.sources.map(_sourceTile),
+                    _sectionHeader(
+                      'MY MODELS',
+                      null,
+                      onAdd: settings.canStoreKeys ? () => _openSheet(const _AddModelSheet()) : null,
+                    ),
+                    if (!settings.canStoreKeys) _warningNote('This server cannot store API keys yet.'),
+                    if (state.models.isEmpty && settings.canStoreKeys)
+                      _note('Every model you add analyzes every new article from your sources, on your own '
+                          'account. Your feed shows the one you pick; open an article to compare the others.')
+                    else
+                      ...state.models.map((m) => _modelTile(m, settings.selectedModelId)),
+                    _heading('TOPIC MATCHING'),
+                    if (state.models.isEmpty)
+                      _note(
+                        'SubQ Snap decides which categories and topics of yours a new article relates to, '
+                        'on our key and only on your own articles. Once you add a model, you can pick it '
+                        'here instead.',
+                      )
+                    else ...[
+                      _card(Column(
+                        children: [
+                          _topicMatcherTile(
+                            'SubQ Snap',
+                            'Our measured system, on our key, only on your own articles.',
+                            selected: settings.topicModelId == null,
+                            onTap: () => _notifier.setTopicModel(_token, null),
+                          ),
+                          ...state.models.map((m) => Column(
+                                children: [
+                                  const Divider(height: 1, color: _line),
+                                  _topicMatcherTile(
+                                    m.label,
+                                    'One more call per article, on your account.',
+                                    selected: settings.topicModelId == m.id,
+                                    onTap: () => _notifier.setTopicModel(_token, m.id),
+                                  ),
+                                ],
+                              )),
+                        ],
+                      )),
+                      _note(
+                        'Decides which categories and topics of yours a new article relates to. Snap was '
+                        'measured on our sources; a model of yours was not. If your model fails on an '
+                        'article, Snap answers for it.',
                       ),
-                      ...state.models.map((m) => Column(
-                            children: [
-                              const Divider(height: 1, color: _line),
-                              _topicMatcherTile(
-                                m.label,
-                                'One more call per article, on your account.',
-                                selected: settings.topicModelId == m.id,
-                                onTap: () => _notifier.setTopicModel(_token, m.id),
-                              ),
-                            ],
-                          )),
                     ],
-                  )),
-                  _note(
-                    'Decides which categories and topics of yours a new article relates to. Snap was '
-                    'measured on our sources; a model of yours was not. If your model fails on an '
-                    'article, Snap answers for it.',
-                  ),
+                  ],
                 ],
               ),
             ),
@@ -596,7 +620,7 @@ class _AddModelSheetState extends ConsumerState<_AddModelSheet> {
       actionLabel: 'Test and save',
       onAction: _save,
       children: [
-        if (!AppConstants.baseUrl.startsWith('https://'))
+        if (sendsKeysUnencrypted(AppConstants.baseUrl))
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(

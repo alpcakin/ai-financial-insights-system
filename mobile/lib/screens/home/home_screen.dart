@@ -784,6 +784,9 @@ class _AssetLogo extends StatelessWidget {
         width: 40,
         height: 40,
         fit: BoxFit.contain,
+        // The logo host sends no CORS header, so the web build can only show it
+        // as an <img> element.
+        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
         errorBuilder: (_, __, ___) => _letterBox(),
         loadingBuilder: (_, child, progress) =>
             progress == null ? child : _letterBox(),
