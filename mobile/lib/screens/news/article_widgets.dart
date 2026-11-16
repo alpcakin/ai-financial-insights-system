@@ -7,6 +7,7 @@ import '../../core/severity.dart';
 import '../../data/models/news_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/news_provider.dart';
+import '../../widgets/advice_notice.dart';
 import '../../widgets/ai_provider_badge.dart';
 
 class ArticleCard extends StatelessWidget {
@@ -562,6 +563,10 @@ class _ArticleDetailSheetState extends ConsumerState<ArticleDetailSheet> {
                   ),
                 );
               }),
+            ],
+            if (summary != null || impacts.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              const AdviceNotice(),
             ],
             if (article.sources.length > 1) ...[
               const SizedBox(height: 24),

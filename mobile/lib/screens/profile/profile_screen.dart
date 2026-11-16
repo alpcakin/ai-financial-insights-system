@@ -5,9 +5,11 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../data/models/manual_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/manual_provider.dart';
+import '../../providers/topic_provider.dart';
 import '../../providers/user_provider.dart';
 import '../manual/manual_mode_screen.dart';
 import '../privacy/privacy_policy_screen.dart';
+import '../topics/topics_screen.dart';
 import '../../widgets/info_tip.dart';
 
 const _ink = Color(0xFF0F172A);
@@ -49,6 +51,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       if (ref.read(manualProvider).settings == null) {
         ref.read(manualProvider.notifier).load(token);
       }
+      if (ref.read(topicProvider).groups.isEmpty) {
+        ref.read(topicProvider.notifier).load(token);
+      }
     });
   }
 
@@ -72,6 +77,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   void _openManual() {
     Navigator.push(context, MaterialPageRoute(builder: (_) => const ManualModeScreen()));
+  }
+
+  void _openInterests() {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const TopicsScreen()));
   }
 
   String _initials(String? email) {
@@ -226,6 +235,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final userState = ref.watch(userProvider);
     final manual = ref.watch(manualProvider);
     final settings = manual.settings;
+    final topics = ref.watch(topicProvider);
+    final followed = topics.followedCount;
     final prefs = userState.profile?.preferences;
 
     final impactValue = _impactOverride ?? prefs?.impactAlerts ?? true;
@@ -256,6 +267,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ),
           const _Label('FEED & ALERTS'),
           _Group(children: [
+            _SettingRow(
+              icon: Icons.interests_rounded,
+              title: 'Interests',
+              subtitle: topics.groups.isEmpty
+                  ? 'Categories and your own topics'
+                  : followed == 0
+                      ? 'Follow categories or add your own topics'
+                      : '$followed followed: categories and your own topics',
+              trailing: const Icon(Icons.chevron_right_rounded, size: 20, color: _faint),
+              onTap: _openInterests,
+            ),
             _SettingRow(
               icon: Icons.filter_list_rounded,
               title: 'Show in feed',

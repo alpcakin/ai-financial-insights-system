@@ -27,6 +27,7 @@ async def lifespan(app: FastAPI):
     from app.services.alert_service import generate_volatility_alerts
     from app.services.asset_check_service import run_asset_check
     from app.services.manual_service import refresh_package_sources
+    from app.services.report_service import REPORT_HOUR
     from app.services.retention_service import purge_old_data
     from app.services.ai import get_registry
 
@@ -110,15 +111,18 @@ async def lifespan(app: FastAPI):
         )
         logger.info("Retention cleanup scheduled daily, keeping %d days", settings.retention_days)
 
+    # Also at startup and with no grace limit: a backend that was down or asleep on
+    # Sunday evening still makes that week's report when it comes back.
     scheduler.add_job(
         generate_weekly_reports,
         "cron",
         day_of_week="sun",
-        hour=20,
+        hour=REPORT_HOUR,
         minute=0,
-        misfire_grace_time=300,
+        next_run_time=datetime.now(),
+        misfire_grace_time=None,
     )
-    logger.info("Weekly reports scheduled for Sunday 20:00")
+    logger.info("Weekly reports scheduled for Sunday %d:00 and checked at startup", REPORT_HOUR)
 
     scheduler.start()
     yield

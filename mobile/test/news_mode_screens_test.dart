@@ -497,6 +497,27 @@ void main() {
       expect(find.text('COMPARE MODELS'), findsNothing);
       expect(find.text('Analyzed by'), findsOneWidget);
     });
+
+    testWidgets('says under the analysis that it is not investment advice', (tester) async {
+      await _pump(
+        tester,
+        Scaffold(body: ArticleDetailSheet(article: _article())),
+        [newsRepositoryProvider.overrideWithValue(_FakeNews(analyses: analyses.sublist(0, 1)))],
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Not investment advice.'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('has no notice when there is no analysis to read', (tester) async {
+      await _pump(
+        tester,
+        Scaffold(body: ArticleDetailSheet(article: _article(summary: null, failed: true))),
+        [newsRepositoryProvider.overrideWithValue(_FakeNews())],
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Not investment advice.'), findsNothing);
+    });
   });
 
   group('Asset news screen', () {

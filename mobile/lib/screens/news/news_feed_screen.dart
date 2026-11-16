@@ -121,6 +121,7 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.interests_rounded, size: 20),
+            tooltip: 'Interests: categories and your own topics',
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const TopicsScreen()),

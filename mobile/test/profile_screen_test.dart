@@ -1,11 +1,14 @@
 import 'package:financial_insights/data/models/manual_models.dart';
 import 'package:financial_insights/data/models/news_models.dart';
+import 'package:financial_insights/data/models/topic_models.dart';
 import 'package:financial_insights/data/models/user_models.dart';
 import 'package:financial_insights/data/repositories/manual_repository.dart';
 import 'package:financial_insights/data/repositories/news_repository.dart';
+import 'package:financial_insights/data/repositories/topic_repository.dart';
 import 'package:financial_insights/data/repositories/user_repository.dart';
 import 'package:financial_insights/providers/manual_provider.dart';
 import 'package:financial_insights/providers/news_provider.dart';
+import 'package:financial_insights/providers/topic_provider.dart';
 import 'package:financial_insights/providers/user_provider.dart';
 import 'package:financial_insights/screens/profile/profile_screen.dart';
 import 'package:financial_insights/widgets/info_tip.dart';
@@ -36,6 +39,23 @@ class _FakeManual extends ManualNotifier {
   }) async {
     updates.add({'package': packageEnabled, 'manual': manualEnabled});
   }
+}
+
+class _FakeTopics extends TopicNotifier {
+  _FakeTopics() : super(TopicRepository()) {
+    state = const TopicState(
+      groups: [
+        TopicGroup(
+          parent: TopicCategory(id: 'tech', name: 'Technology', level: 1, followed: false),
+          children: [TopicCategory(id: 'soft', name: 'Software', level: 2, parentId: 'tech', followed: true)],
+        ),
+      ],
+      ownTopics: [TopicCategory(id: 'ny', name: 'New York', level: null, kind: 'topic', followed: true)],
+    );
+  }
+
+  @override
+  Future<void> load(String token) async {}
 }
 
 class _FakeNews extends NewsRepository {
@@ -96,6 +116,7 @@ Future<(_FakeManual, _FakeUser)> _pump(WidgetTester tester, ManualState manual) 
       manualProvider.overrideWith((ref) => fakeManual),
       userProvider.overrideWith((ref) => fakeUser),
       newsRepositoryProvider.overrideWithValue(_FakeNews()),
+      topicProvider.overrideWith((ref) => _FakeTopics()),
     ],
     child: const MaterialApp(home: ProfileScreen()),
   ));
@@ -193,6 +214,16 @@ void main() {
     expect(find.textContaining('mostly opinion'), findsOneWidget);
     await tester.pump(const Duration(seconds: 11));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('interests are reachable from the profile and say how many are followed', (tester) async {
+    await _pump(tester, const ManualState(settings: _bothOn));
+    await tester.scrollUntilVisible(find.text('Interests'), 200, scrollable: find.byType(Scrollable).first);
+    expect(find.text('2 followed: categories and your own topics'), findsOneWidget);
+    await tester.tap(find.text('Interests'));
+    await tester.pumpAndSettle();
+    expect(find.text('New York'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('show in feed is a two-way choice', (tester) async {

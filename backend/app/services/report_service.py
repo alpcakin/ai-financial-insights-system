@@ -1,17 +1,36 @@
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 import yfinance as yf
 from supabase import Client
 
 logger = logging.getLogger(__name__)
 
+# Reports are made on Sundays at this hour, server time.
+REPORT_HOUR = 20
 
-def generate_weekly_report(db: Client, user_id: str) -> dict:
-    period_end = date.today()
+
+def latest_report_sunday(now: datetime) -> date:
+    """The last Sunday whose report hour has passed. ``now`` is naive local time."""
+    sunday = now.date() - timedelta(days=(now.weekday() + 1) % 7)
+    if sunday == now.date() and now.hour < REPORT_HOUR:
+        sunday -= timedelta(days=7)
+    return sunday
+
+
+def report_window(sunday: date) -> tuple[datetime, datetime]:
+    """From the previous Sunday's report hour to this Sunday's, in UTC."""
+    start = datetime.combine(sunday - timedelta(days=7), time(REPORT_HOUR)).astimezone(timezone.utc)
+    end = datetime.combine(sunday, time(REPORT_HOUR)).astimezone(timezone.utc)
+    return start, end
+
+
+def generate_weekly_report(db: Client, user_id: str, sunday: date) -> dict:
+    period_end = sunday
     period_start = period_end - timedelta(days=7)
+    window_start, window_end = report_window(sunday)
 
     existing = (
         db.table("reports")
@@ -37,7 +56,8 @@ def generate_weekly_report(db: Client, user_id: str) -> dict:
         db.table("user_news_feed")
         .select("articles(id, title, source, published_at), article_analyses(severity, sentiment_label, summary)")
         .eq("user_id", user_id)
-        .gte("created_at", str(period_start))
+        .gte("created_at", window_start.isoformat())
+        .lt("created_at", window_end.isoformat())
         .limit(1000)
         .execute()
     )
@@ -73,11 +93,19 @@ def generate_weekly_report(db: Client, user_id: str) -> dict:
         symbol = asset["asset_symbol"]
         quantity = float(asset["quantity"])
         try:
-            hist = yf.Ticker(symbol).history(period="8d")
-            if len(hist) < 2:
+            # The last close on or before each Sunday: Friday to Friday for stocks,
+            # Sunday to Sunday for crypto. A late report still uses that week's prices.
+            hist = yf.Ticker(symbol).history(
+                start=period_start - timedelta(days=7), end=period_end + timedelta(days=1),
+            )
+            if hist.empty:
                 return None
-            price_now = float(hist["Close"].iloc[-1])
-            price_7d_ago = float(hist["Close"].iloc[0])
+            closes = [(ts.date(), float(close)) for ts, close in hist["Close"].items()]
+            before = [close for day, close in closes if day <= period_start]
+            if not before or closes[-1][0] <= period_start:
+                return None
+            price_now = closes[-1][1]
+            price_7d_ago = before[-1]
             if price_7d_ago == 0:
                 return None
             change_pct = (price_now - price_7d_ago) / price_7d_ago * 100
