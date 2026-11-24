@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/models/portfolio_models.dart';
 import '../data/repositories/portfolio_repository.dart';
+import 'auth_provider.dart';
 
 final portfolioRepositoryProvider = Provider<PortfolioRepository>(
   (_) => PortfolioRepository(),
@@ -149,4 +150,13 @@ class PortfolioNotifier extends StateNotifier<PortfolioState> {
 
 final portfolioProvider = StateNotifierProvider<PortfolioNotifier, PortfolioState>((ref) {
   return PortfolioNotifier(ref.read(portfolioRepositoryProvider));
+});
+
+/// The portfolio's value over the last 30 days, read again when holdings change.
+final portfolioHistoryProvider = FutureProvider.autoDispose<List<double>>((ref) {
+  ref.watch(portfolioProvider.select(
+    (s) => [for (final a in s.assets) '${a.assetSymbol}:${a.quantity}'].join(','),
+  ));
+  final token = ref.watch(authProvider.select((s) => s.token)) ?? '';
+  return ref.read(portfolioRepositoryProvider).getHistory(token);
 });

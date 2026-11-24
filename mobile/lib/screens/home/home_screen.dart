@@ -1,4 +1,3 @@
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -11,37 +10,26 @@ import '../../data/models/portfolio_models.dart';
 import '../../data/models/watchlist_models.dart';
 import '../../providers/alert_provider.dart';
 import '../../providers/alert_settings_provider.dart';
+import '../../providers/asset_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/portfolio_provider.dart';
 import '../../providers/watchlist_provider.dart';
+import '../../widgets/sparkline.dart';
+import '../alerts/alert_card.dart';
 import '../alerts/alerts_screen.dart';
-import '../news/article_widgets.dart';
-import 'alert_setting_sheet.dart';
+import '../news/asset_news_screen.dart';
 import 'asset_browser_modal.dart';
+import 'today_card.dart';
 
-const _kChartColors = [
-  Color(0xFF1565C0),
-  Color(0xFF6A1B9A),
-  Color(0xFFE65100),
-  Color(0xFF2E7D32),
-  Color(0xFFAD1457),
-  Color(0xFFF57F17),
-  Color(0xFFB71C1C),
-  Color(0xFF00695C),
-  Color(0xFF0277BD),
-  Color(0xFF4527A0),
-  Color(0xFF558B2F),
-  Color(0xFF00838F),
-  Color(0xFF6D4C41),
-  Color(0xFF37474F),
-  Color(0xFF283593),
-  Color(0xFF880E4F),
-  Color(0xFF4E342E),
-  Color(0xFF1B5E20),
-  Color(0xFF004D40),
-  Color(0xFF827717),
-];
+const _ink = Color(0xFF0F172A);
+const _muted = Color(0xFF64748B);
+const _faint = Color(0xFF94A3B8);
+const _green = Color(0xFF10B981);
+const _red = Color(0xFFEF4444);
 
+/// The user's day at a glance: what their portfolio is worth, whether anything
+/// important happened to their assets, and the assets themselves. Every row
+/// shows two numbers; the rest is one tap away on the asset's page.
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -64,6 +52,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Future<void> _refresh() async {
     final token = ref.read(authProvider).token ?? '';
+    ref.invalidate(portfolioHistoryProvider);
     await Future.wait([
       ref.read(portfolioProvider.notifier).load(token),
       ref.read(watchlistProvider.notifier).load(token),
@@ -72,15 +61,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ]);
   }
 
-  Future<AssetInfo?> _openBrowser() {
+  /// One add button for both lists: the user first says what the asset is to them.
+  Future<void> _openAddChoice() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 16, 8, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text('Add an asset', style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w700)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.account_balance_wallet_outlined),
+                title: const Text('To your portfolio'),
+                subtitle: const Text('Something you own, with its quantity and price'),
+                onTap: () => Navigator.pop(ctx, 'portfolio'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.visibility_outlined),
+                title: const Text('To your watchlist'),
+                subtitle: const Text('Something you follow for its news and price'),
+                onTap: () => Navigator.pop(ctx, 'watchlist'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'portfolio') await _addToPortfolio();
+    if (choice == 'watchlist') await _addToWatchlist();
+  }
+
+  Future<AssetInfo?> _pickAsset() {
     return showDialog<AssetInfo>(
       context: context,
       builder: (_) => const AssetBrowserModal(),
     );
   }
 
-  Future<void> _openBrowserForPortfolio() async {
-    final asset = await _openBrowser();
+  Future<void> _addToPortfolio() async {
+    final asset = await _pickAsset();
     if (asset == null || !mounted) return;
     final result = await showModalBottomSheet<bool>(
       context: context,
@@ -99,15 +128,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  Future<void> _openBrowserForWatchlist() async {
-    final asset = await _openBrowser();
+  Future<void> _addToWatchlist() async {
+    final asset = await _pickAsset();
     if (asset == null || !mounted) return;
     final token = ref.read(authProvider).token ?? '';
     try {
-      await ref.read(watchlistProvider.notifier).add(
-            token,
-            symbol: asset.symbol,
-          );
+      await ref.read(watchlistProvider.notifier).add(token, symbol: asset.symbol);
     } catch (_) {
       if (!mounted) return;
       final error = ref.read(watchlistProvider).error ?? 'Failed to add to watchlist';
@@ -131,7 +157,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: TextButton.styleFrom(foregroundColor: const Color(0xFFEF4444)),
+            style: TextButton.styleFrom(foregroundColor: _red),
             child: const Text('Remove'),
           ),
         ],
@@ -178,29 +204,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  void _showEditAssetSheet(PortfolioAsset asset) async {
-    final result = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _EditAssetSheet(asset: asset),
-    );
-    if (!mounted) return;
-    if (result == false) {
-      final error = ref.read(portfolioProvider).error;
-      if (error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final portfolioState = ref.watch(portfolioProvider);
-    final watchlistState = ref.watch(watchlistProvider);
-    final alertSettings = ref.watch(alertSettingsProvider);
+    final portfolio = ref.watch(portfolioProvider);
+    final watchlist = ref.watch(watchlistProvider);
+    final today = todayImpactAlerts(ref.watch(alertProvider).alerts);
+    final names = {
+      for (final a in ref.watch(assetCatalogProvider).valueOrNull ?? const <AssetInfo>[]) a.symbol: a.name,
+    };
+    // The strongest of today's important stories per asset, shown on its row.
+    final newsLevel = <String, int>{};
+    for (final alert in today) {
+      final symbol = alert.assetSymbol;
+      if (symbol == null) continue;
+      final level = alert.severity ?? 0;
+      if (level > (newsLevel[symbol] ?? 0)) newsLevel[symbol] = level;
+    }
 
     ref.listen(
       portfolioProvider.select((s) => s.isLoading ? null : s.error),
@@ -220,6 +239,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       },
     );
 
+    final hasHoldings = portfolio.assets.isNotEmpty;
+    final hasWatched = watchlist.items.isNotEmpty;
+    final loading = (portfolio.isLoading || watchlist.isLoading) && !hasHoldings && !hasWatched;
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -227,6 +250,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 18),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.add_rounded, size: 24),
+            tooltip: 'Add an asset',
+            onPressed: _openAddChoice,
+          ),
           _AlertsBellButton(onSeeAll: () {
             Navigator.push(
               context,
@@ -238,116 +266,61 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       body: RefreshIndicator(
         onRefresh: _refresh,
         color: const Color(0xFF3B82F6),
-        child: CustomScrollView(
+        child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverToBoxAdapter(
-              child: _SectionHeader(title: 'Portfolio', onAdd: _openBrowserForPortfolio),
-            ),
-            SliverToBoxAdapter(
-              child: _PortfolioHeader(state: portfolioState),
-            ),
-            if (portfolioState.isLoading && portfolioState.assets.isEmpty)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 32),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
+          padding: const EdgeInsets.only(top: 4, bottom: 24),
+          children: [
+            if (loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 80),
+                child: Center(child: CircularProgressIndicator()),
               )
-            else if (portfolioState.assets.isEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Center(
-                    child: Text(
-                      'No assets yet. Tap + to add one.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ),
-                ),
-              )
-            else
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final asset = portfolioState.assets[index];
-                    return Dismissible(
-                      key: Key(asset.id),
-                      direction: DismissDirection.endToStart,
-                      background: Container(
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 20),
-                        color: const Color(0xFFEF4444),
-                        child: const Icon(Icons.delete_rounded, color: Colors.white),
-                      ),
-                      confirmDismiss: (_) => _deletePortfolioAsset(asset),
-                      child: _AssetTile(
-                        asset: asset,
-                        color: _kChartColors[index % _kChartColors.length],
-                        alertSetting: alertSettings.forSymbol(asset.assetSymbol),
-                        onTap: () => _showEditAssetSheet(asset),
-                      ),
-                    );
-                  },
-                  childCount: portfolioState.assets.length,
-                ),
-              ),
-            const SliverToBoxAdapter(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                child: Divider(),
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: _SectionHeader(title: 'Watchlist', onAdd: _openBrowserForWatchlist),
-            ),
-            if (watchlistState.isLoading && watchlistState.items.isEmpty)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 32),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              )
-            else if (watchlistState.items.isEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 24),
-                  child: Center(
-                    child: Text(
-                      'No items yet. Tap + to add one.',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ),
-                ),
-              )
-            else
-              SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) {
-                    final item = watchlistState.items[index];
-                    return Dismissible(
-                      key: Key(item.id),
-                      direction: DismissDirection.endToStart,
-                      background: Container(
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 20),
-                        color: const Color(0xFFEF4444),
-                        child: const Icon(Icons.delete_rounded, color: Colors.white),
-                      ),
-                      confirmDismiss: (_) => _deleteWatchlistItem(item),
-                      child: InkWell(
-                        onTap: () => showAlertSettingSheet(context, item.assetSymbol),
-                        child: _WatchlistTile(
-                          item: item,
-                          alertSetting: alertSettings.forSymbol(item.assetSymbol),
+            else if (!hasHoldings && !hasWatched)
+              _Welcome(onAdd: _openAddChoice)
+            else ...[
+              if (hasHoldings) _Summary(state: portfolio),
+              TodayCard(alerts: today),
+              if (hasHoldings) ...[
+                _SectionTitle(title: 'Holdings', count: portfolio.assets.length),
+                _Group(
+                  children: [
+                    for (final asset in portfolio.assets)
+                      _Removable(
+                        key: Key(asset.id),
+                        onRemove: () => _deletePortfolioAsset(asset),
+                        child: _AssetRow(
+                          symbol: asset.assetSymbol,
+                          subtitle: names[asset.assetSymbol] ?? _typeLabel(asset.assetType),
+                          amount: asset.currentValue != null ? formatAmount(asset.currentValue!) : '—',
+                          changePct: asset.dailyChangePct,
+                          newsLevel: newsLevel[asset.assetSymbol],
+                          onTap: () => openAssetPage(context, ref, asset.assetSymbol),
                         ),
                       ),
-                    );
-                  },
-                  childCount: watchlistState.items.length,
+                  ],
                 ),
-              ),
-            const SliverToBoxAdapter(child: SizedBox(height: 32)),
+              ],
+              if (hasWatched) ...[
+                _SectionTitle(title: 'Watching', count: watchlist.items.length),
+                _Group(
+                  children: [
+                    for (final item in watchlist.items)
+                      _Removable(
+                        key: Key(item.id),
+                        onRemove: () => _deleteWatchlistItem(item),
+                        child: _AssetRow(
+                          symbol: item.assetSymbol,
+                          subtitle: names[item.assetSymbol] ?? _typeLabel(item.assetType),
+                          amount: item.currentPrice != null ? formatPrice(item.currentPrice!) : '—',
+                          changePct: item.priceChangePct,
+                          newsLevel: newsLevel[item.assetSymbol],
+                          onTap: () => openAssetPage(context, ref, item.assetSymbol),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+            ],
           ],
         ),
       ),
@@ -355,39 +328,123 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  final String title;
+String _typeLabel(String type) {
+  switch (type.toLowerCase()) {
+    case 'stock': return 'Equity';
+    case 'etf': return 'ETF';
+    case 'crypto': return 'Crypto';
+    case 'bond': return 'Bond';
+    case 'commodity': return 'Commodity';
+    default: return type;
+  }
+}
+
+/// What the portfolio is worth, with today's move first and the all-time result
+/// beneath it, quieter. Its last 30 days are a bare line beside it.
+class _Summary extends ConsumerWidget {
+  final PortfolioState state;
+
+  const _Summary({required this.state});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final daily = state.totalDailyChange;
+    final dailyColor = daily >= 0 ? _green : _red;
+    final pnl = state.totalPnl;
+    final pnlPct = state.totalPnlPct;
+    final history = ref.watch(portfolioHistoryProvider).valueOrNull ?? const <double>[];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Portfolio value', style: GoogleFonts.inter(fontSize: 13, color: _muted)),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    formatAmount(state.totalValue),
+                    style: GoogleFonts.inter(fontSize: 34, fontWeight: FontWeight.w700, color: _ink, letterSpacing: -1),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      daily >= 0 ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
+                      size: 16,
+                      color: dailyColor,
+                    ),
+                    const SizedBox(width: 2),
+                    Flexible(
+                      child: Text(
+                        '${formatAmount(daily.abs())} (${state.totalDailyChangePct.abs().toStringAsFixed(2)}%) today',
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: dailyColor),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${formatAmount(pnl, signed: true)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toStringAsFixed(2)}%) all time',
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(fontSize: 13, color: _muted),
+                ),
+              ],
+            ),
+          ),
+          if (history.length >= 2) ...[
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Sparkline(values: history, color: history.last >= history.first ? _green : _red),
+                const SizedBox(height: 4),
+                Text('30 days', style: GoogleFonts.inter(fontSize: 11, color: _faint)),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Welcome extends StatelessWidget {
   final VoidCallback onAdd;
 
-  const _SectionHeader({required this.title, required this.onAdd});
+  const _Welcome({required this.onAdd});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 8, 8),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(32, 80, 32, 0),
+      child: Column(
         children: [
-          Expanded(
-            child: Text(
-              title,
-              style: GoogleFonts.inter(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF94A3B8),
-                letterSpacing: 0.8,
-              ),
-            ),
+          const Icon(Icons.insights_rounded, size: 48, color: Color(0xFFCBD5E1)),
+          const SizedBox(height: 16),
+          Text(
+            'Start with an asset',
+            style: GoogleFonts.inter(fontSize: 17, fontWeight: FontWeight.w700, color: _ink),
           ),
-          TextButton.icon(
+          const SizedBox(height: 6),
+          Text(
+            'Add something you own or follow. Its news, analyzed for you, and its price alerts will show up here.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(fontSize: 13, color: _muted, height: 1.45),
+          ),
+          const SizedBox(height: 20),
+          FilledButton.icon(
             onPressed: onAdd,
-            icon: const Icon(Icons.add_rounded, size: 16),
-            label: Text(
-              'Add',
-              style: GoogleFonts.inter(fontWeight: FontWeight.w600, fontSize: 13),
-            ),
-            style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFF3B82F6),
-            ),
+            icon: const Icon(Icons.add_rounded, size: 18),
+            label: const Text('Add an asset'),
+            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14)),
           ),
         ],
       ),
@@ -395,253 +452,108 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _PortfolioHeader extends StatelessWidget {
-  final PortfolioState state;
+class _SectionTitle extends StatelessWidget {
+  final String title;
+  final int count;
 
-  const _PortfolioHeader({required this.state});
-
+  const _SectionTitle({required this.title, required this.count});
 
   @override
   Widget build(BuildContext context) {
-    final pnl = state.totalPnl;
-    final pnlPct = state.totalPnlPct;
-    final daily = state.totalDailyChange;
-    final dailyPct = state.totalDailyChangePct;
-    final pnlPositive = pnl >= 0;
-    final dailyPositive = daily >= 0;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
+      child: Row(
+        children: [
+          Text(title, style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700, color: _ink)),
+          const SizedBox(width: 6),
+          Text('$count', style: GoogleFonts.inter(fontSize: 13, color: _faint)),
+        ],
+      ),
+    );
+  }
+}
 
-    final assetsWithValue = state.assets
-        .where((a) => (a.currentValue ?? 0) > 0)
-        .toList();
+/// Rows in one card, divided by lines.
+class _Group extends StatelessWidget {
+  final List<Widget> children;
 
+  const _Group({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFEFF6FF), Color(0xFFE0EFFE)],
-        ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFBFDBFE)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Total Value',
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: const Color(0xFF64748B),
-                letterSpacing: 0.5,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              formatAmount(state.totalValue),
-              style: GoogleFonts.inter(
-                fontSize: 30,
-                fontWeight: FontWeight.w700,
-                color: const Color(0xFF0F172A),
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _StatBlock(
-                        label: 'All-time P&L',
-                        value: formatAmount(pnl, signed: true),
-                        sub:
-                            '${pnlPositive ? '+' : ''}${pnlPct.toStringAsFixed(2)}%',
-                        positive: pnlPositive,
-                      ),
-                      const SizedBox(height: 14),
-                      _StatBlock(
-                        label: 'Today',
-                        value: formatAmount(daily, signed: true),
-                        sub:
-                            '${dailyPositive ? '+' : ''}${dailyPct.toStringAsFixed(2)}%',
-                        positive: dailyPositive,
-                      ),
-                    ],
-                  ),
-                ),
-                if (assetsWithValue.length >= 2)
-                  _DonutChart(
-                    assets: assetsWithValue,
-                    totalValue: state.totalValue,
-                    colors: _kChartColors,
-                  ),
-              ],
-            ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) const Divider(height: 1, indent: 64),
+            children[i],
           ],
-        ),
+        ],
       ),
     );
   }
 }
 
-class _StatBlock extends StatelessWidget {
-  final String label;
-  final String value;
-  final String sub;
-  final bool positive;
+/// A row removed by swiping it to the left, after [onRemove] confirms.
+class _Removable extends StatelessWidget {
+  final Future<bool> Function() onRemove;
+  final Widget child;
 
-  const _StatBlock({
-    required this.label,
-    required this.value,
-    required this.sub,
-    required this.positive,
-  });
+  const _Removable({required Key key, required this.onRemove, required this.child}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final color = positive ? const Color(0xFF10B981) : const Color(0xFFEF4444);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: GoogleFonts.inter(
-            fontSize: 11,
-            fontWeight: FontWeight.w500,
-            color: const Color(0xFF94A3B8),
-            letterSpacing: 0.3,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: GoogleFonts.inter(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-        ),
-        Text(
-          sub,
-          style: GoogleFonts.inter(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: color.withAlpha(180),
-          ),
-        ),
-      ],
+    return Dismissible(
+      key: key!,
+      direction: DismissDirection.endToStart,
+      background: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        color: _red,
+        child: const Icon(Icons.delete_rounded, color: Colors.white),
+      ),
+      confirmDismiss: (_) => onRemove(),
+      child: child,
     );
   }
 }
 
-class _DonutChart extends StatelessWidget {
-  final List<PortfolioAsset> assets;
-  final double totalValue;
-  final List<Color> colors;
-
-  const _DonutChart({
-    required this.assets,
-    required this.totalValue,
-    required this.colors,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          width: 130,
-          height: 130,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF3B82F6).withAlpha(40),
-                blurRadius: 20,
-                spreadRadius: 4,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: PieChart(
-            PieChartData(
-              sections: assets.asMap().entries.map((entry) {
-                final i = entry.key;
-                final a = entry.value;
-                final pct = (a.currentValue ?? 0) / totalValue * 100;
-                return PieChartSectionData(
-                  value: pct,
-                  color: colors[i % colors.length],
-                  radius: 44,
-                  title: '',
-                  borderSide: BorderSide(
-                    color: Colors.black.withAlpha(40),
-                    width: 1.2,
-                  ),
-                );
-              }).toList(),
-              centerSpaceRadius: 30,
-              sectionsSpace: 0,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _AssetTile extends StatelessWidget {
-  final PortfolioAsset asset;
-  final Color color;
-  final AlertSetting alertSetting;
+/// One asset: who it is on the left, what it is worth and how it moved today on
+/// the right. A bolt marks important news about it today.
+class _AssetRow extends StatelessWidget {
+  final String symbol;
+  final String subtitle;
+  final String amount;
+  final double? changePct;
+  final int? newsLevel;
   final VoidCallback onTap;
 
-  const _AssetTile({
-    required this.asset,
-    required this.color,
-    required this.alertSetting,
+  const _AssetRow({
+    required this.symbol,
+    required this.subtitle,
+    required this.amount,
+    required this.changePct,
+    required this.newsLevel,
     required this.onTap,
   });
 
-  String _formatType(String type) {
-    switch (type.toLowerCase()) {
-      case 'stock': return 'Equity';
-      case 'etf': return 'ETF';
-      case 'crypto': return 'Crypto';
-      case 'bond': return 'Bond';
-      case 'commodity': return 'Commodity';
-      default: return type;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final costBasis = asset.quantity * asset.purchasePrice;
-    final currentVal = asset.currentValue ?? costBasis;
-    final pnl = currentVal - costBasis;
-    final pnlPct = costBasis > 0 ? (pnl / costBasis) * 100 : 0.0;
-    final pnlPositive = pnl >= 0;
-    final pnlColor = pnlPositive ? const Color(0xFF10B981) : const Color(0xFFEF4444);
-
+    final change = changePct;
     return InkWell(
       onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
-            _AssetLogo(symbol: asset.assetSymbol, color: color),
+            _AssetLogo(symbol: symbol),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -649,95 +561,45 @@ class _AssetTile extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      Text(
-                        asset.assetSymbol,
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFF0F172A),
+                      Flexible(
+                        child: Text(
+                          symbol,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, color: _ink),
                         ),
                       ),
-                      _AlertBadge(setting: alertSetting),
+                      if (newsLevel != null) ...[
+                        const SizedBox(width: 4),
+                        Tooltip(
+                          message: '${severityLabel(newsLevel!)} impact news today',
+                          child: Icon(Icons.bolt_rounded, size: 16, color: severityColor(newsLevel)),
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${_formatType(asset.assetType)} · ${asset.quantity % 1 == 0 ? asset.quantity.toInt() : asset.quantity} ${asset.quantity == 1.0 ? 'share' : 'shares'}',
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      color: const Color(0xFF94A3B8),
-                    ),
+                    subtitle,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(fontSize: 12, color: _faint),
                   ),
                 ],
               ),
-            ),
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: color,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      asset.currentPrice != null
-                          ? formatPrice(asset.currentPrice!)
-                          : '—',
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF0F172A),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      formatAmount(currentVal),
-                      style: GoogleFonts.inter(
-                        fontSize: 11,
-                        color: const Color(0xFF94A3B8),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
             ),
             const SizedBox(width: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: pnlColor.withAlpha(20),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    '${pnlPositive ? '+' : ''}${pnlPct.toStringAsFixed(2)}%',
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: pnlColor,
-                    ),
+                Text(amount, style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, color: _ink)),
+                const SizedBox(height: 2),
+                Text(
+                  change == null ? '—' : '${change >= 0 ? '▲' : '▼'} ${change.abs().toStringAsFixed(2)}%',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: change == null ? _faint : (change >= 0 ? _green : _red),
                   ),
                 ),
-                if (asset.dailyChangePct != null) ...[
-                  const SizedBox(height: 3),
-                  Text(
-                    '${asset.dailyChangePct! >= 0 ? '+' : ''}${asset.dailyChangePct!.toStringAsFixed(2)}% today',
-                    style: GoogleFonts.inter(
-                      fontSize: 10,
-                      color: asset.dailyChangePct! >= 0
-                          ? const Color(0xFF10B981)
-                          : const Color(0xFFEF4444),
-                    ),
-                  ),
-                ],
               ],
             ),
           ],
@@ -749,27 +611,23 @@ class _AssetTile extends StatelessWidget {
 
 class _AssetLogo extends StatelessWidget {
   final String symbol;
-  final Color color;
 
-  const _AssetLogo({required this.symbol, required this.color});
+  const _AssetLogo({required this.symbol});
+
+  static const _size = 36.0;
 
   Widget _letterBox() {
     return Container(
-      width: 40,
-      height: 40,
+      width: _size,
+      height: _size,
       decoration: BoxDecoration(
-        color: color.withAlpha(25),
+        color: const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withAlpha(80)),
       ),
       child: Center(
         child: Text(
           symbol.length > 3 ? symbol.substring(0, 3) : symbol,
-          style: GoogleFonts.inter(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
+          style: GoogleFonts.inter(fontSize: 10, fontWeight: FontWeight.w700, color: _muted),
         ),
       ),
     );
@@ -781,111 +639,14 @@ class _AssetLogo extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       child: Image.network(
         'https://assets.parqet.com/logos/symbol/$symbol?format=png',
-        width: 40,
-        height: 40,
+        width: _size,
+        height: _size,
         fit: BoxFit.contain,
         // The logo host sends no CORS header, so the web build can only show it
         // as an <img> element.
         webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
         errorBuilder: (_, __, ___) => _letterBox(),
-        loadingBuilder: (_, child, progress) =>
-            progress == null ? child : _letterBox(),
-      ),
-    );
-  }
-}
-
-class _WatchlistTile extends StatelessWidget {
-  final WatchlistItem item;
-  final AlertSetting alertSetting;
-  const _WatchlistTile({required this.item, required this.alertSetting});
-
-  @override
-  Widget build(BuildContext context) {
-    final change = item.priceChange;
-    final changePct = item.priceChangePct;
-    final isPositive = (change ?? 0) >= 0;
-    final color = change == null
-        ? const Color(0xFF94A3B8)
-        : isPositive
-            ? const Color(0xFF10B981)
-            : const Color(0xFFEF4444);
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Row(
-        children: [
-          _AssetLogo(symbol: item.assetSymbol, color: const Color(0xFF64748B)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      item.assetSymbol,
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF0F172A),
-                      ),
-                    ),
-                    _AlertBadge(setting: alertSetting),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  item.assetType,
-                  style: GoogleFonts.inter(
-                    fontSize: 11,
-                    color: const Color(0xFF94A3B8),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                item.currentPrice != null
-                    ? formatPrice(item.currentPrice!)
-                    : '—',
-                style: GoogleFonts.inter(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF0F172A),
-                ),
-              ),
-              const SizedBox(height: 2),
-              if (change != null && changePct != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: color.withAlpha(20),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    '${isPositive ? '+' : ''}${changePct.toStringAsFixed(2)}%',
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: color,
-                    ),
-                  ),
-                )
-              else
-                Text('—', style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF94A3B8))),
-            ],
-          ),
-        ],
+        loadingBuilder: (_, child, progress) => progress == null ? child : _letterBox(),
       ),
     );
   }
@@ -896,12 +657,10 @@ class _PortfolioDetailsSheet extends ConsumerStatefulWidget {
   const _PortfolioDetailsSheet({required this.asset});
 
   @override
-  ConsumerState<_PortfolioDetailsSheet> createState() =>
-      _PortfolioDetailsSheetState();
+  ConsumerState<_PortfolioDetailsSheet> createState() => _PortfolioDetailsSheetState();
 }
 
-class _PortfolioDetailsSheetState
-    extends ConsumerState<_PortfolioDetailsSheet> {
+class _PortfolioDetailsSheetState extends ConsumerState<_PortfolioDetailsSheet> {
   final _formKey = GlobalKey<FormState>();
   final _quantityCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
@@ -931,6 +690,13 @@ class _PortfolioDetailsSheetState
     }
   }
 
+  String? _positive(String? v, String name) {
+    if (v == null || v.trim().isEmpty) return '$name is required';
+    final n = double.tryParse(v.trim());
+    if (n == null || n <= 0) return 'Must be greater than 0';
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isLoading = ref.watch(portfolioProvider).isLoading;
@@ -954,7 +720,7 @@ class _PortfolioDetailsSheetState
             ),
             Text(
               widget.asset.name,
-              style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8)),
+              style: GoogleFonts.inter(fontSize: 13, color: _faint),
             ),
             const SizedBox(height: 20),
             TextFormField(
@@ -962,24 +728,14 @@ class _PortfolioDetailsSheetState
               decoration: const InputDecoration(labelText: 'Quantity'),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               autofocus: true,
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Quantity is required';
-                final n = double.tryParse(v.trim());
-                if (n == null || n <= 0) return 'Must be greater than 0';
-                return null;
-              },
+              validator: (v) => _positive(v, 'Quantity'),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _priceCtrl,
               decoration: const InputDecoration(labelText: 'Purchase Price'),
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Purchase price is required';
-                final n = double.tryParse(v.trim());
-                if (n == null || n <= 0) return 'Must be greater than 0';
-                return null;
-              },
+              validator: (v) => _positive(v, 'Purchase price'),
             ),
             const SizedBox(height: 24),
             FilledButton(
@@ -994,155 +750,6 @@ class _PortfolioDetailsSheetState
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _EditAssetSheet extends ConsumerStatefulWidget {
-  final PortfolioAsset asset;
-  const _EditAssetSheet({required this.asset});
-
-  @override
-  ConsumerState<_EditAssetSheet> createState() => _EditAssetSheetState();
-}
-
-class _EditAssetSheetState extends ConsumerState<_EditAssetSheet> {
-  final _formKey = GlobalKey<FormState>();
-  final _quantityCtrl = TextEditingController();
-  final _priceCtrl = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _quantityCtrl.text = widget.asset.quantity.toString();
-    _priceCtrl.text = widget.asset.purchasePrice.toString();
-  }
-
-  @override
-  void dispose() {
-    _quantityCtrl.dispose();
-    _priceCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    final token = ref.read(authProvider).token ?? '';
-    final quantity = double.parse(_quantityCtrl.text.trim());
-    final price = double.parse(_priceCtrl.text.trim());
-    try {
-      await ref.read(portfolioProvider.notifier).update(
-            token,
-            id: widget.asset.id,
-            quantity: quantity,
-            purchasePrice: price,
-          );
-      if (mounted) Navigator.of(context).pop(true);
-    } catch (_) {
-      if (mounted) Navigator.of(context).pop(false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isLoading = ref.watch(portfolioProvider).isLoading;
-
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 20,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              'Edit ${widget.asset.assetSymbol}',
-              style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 20),
-            TextFormField(
-              controller: _quantityCtrl,
-              decoration: const InputDecoration(labelText: 'Quantity'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Quantity is required';
-                final n = double.tryParse(v.trim());
-                if (n == null || n <= 0) return 'Must be greater than 0';
-                return null;
-              },
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _priceCtrl,
-              decoration: const InputDecoration(labelText: 'Purchase Price'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'Purchase price is required';
-                final n = double.tryParse(v.trim());
-                if (n == null || n <= 0) return 'Must be greater than 0';
-                return null;
-              },
-            ),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: isLoading ? null : _save,
-              child: isLoading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Text('Save Changes'),
-            ),
-            const SizedBox(height: 8),
-            TextButton.icon(
-              onPressed: () => showAlertSettingSheet(context, widget.asset.assetSymbol),
-              icon: const Icon(Icons.notifications_outlined, size: 18),
-              label: Text(
-                'Price alert: '
-                '${ref.watch(alertSettingsProvider).forSymbol(widget.asset.assetSymbol).label}',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Shown next to an asset whose price alert is not the default.
-class _AlertBadge extends StatelessWidget {
-  final AlertSetting setting;
-  const _AlertBadge({required this.setting});
-
-  @override
-  Widget build(BuildContext context) {
-    if (setting.isAutomatic) return const SizedBox.shrink();
-    final isOff = setting.mode == 'off';
-    return Padding(
-      padding: const EdgeInsets.only(left: 6),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            isOff ? Icons.notifications_off_outlined : Icons.notifications_active_outlined,
-            size: 13,
-            color: const Color(0xFF64748B),
-          ),
-          if (!isOff) ...[
-            const SizedBox(width: 2),
-            Text(
-              setting.label,
-              style: GoogleFonts.inter(fontSize: 11, color: const Color(0xFF64748B)),
-            ),
-          ],
-        ],
       ),
     );
   }
@@ -1173,7 +780,7 @@ class _AlertsBellButton extends ConsumerWidget {
         barrierColor: Colors.transparent,
         builder: (_) => _AlertsPopup(
           onSeeAll: onSeeAll,
-          onOpenArticle: (id) => openFeedArticle(context, ref, id),
+          targetOf: (alert) => alertTarget(context, ref, alert),
         ),
       ),
     );
@@ -1182,9 +789,11 @@ class _AlertsBellButton extends ConsumerWidget {
 
 class _AlertsPopup extends ConsumerWidget {
   final VoidCallback onSeeAll;
-  final void Function(String articleId) onOpenArticle;
 
-  const _AlertsPopup({required this.onSeeAll, required this.onOpenArticle});
+  /// Opens from the screen behind the popup, which stays after the popup closes.
+  final VoidCallback? Function(AlertItem alert) targetOf;
+
+  const _AlertsPopup({required this.onSeeAll, required this.targetOf});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1215,7 +824,7 @@ class _AlertsPopup extends ConsumerWidget {
                     style: GoogleFonts.inter(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
-                      color: const Color(0xFF0F172A),
+                      color: _ink,
                     ),
                   ),
                 ),
@@ -1226,23 +835,20 @@ class _AlertsPopup extends ConsumerWidget {
                     child: Center(
                       child: Text(
                         'No alerts yet',
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          color: const Color(0xFF94A3B8),
-                        ),
+                        style: GoogleFonts.inter(fontSize: 13, color: _faint),
                       ),
                     ),
                   )
                 else
                   ...preview.map((a) {
-                    final articleId = a.articleId;
+                    final target = targetOf(a);
                     return _CompactAlertRow(
                       alert: a,
-                      onTap: articleId == null
+                      onTap: target == null
                           ? null
                           : () {
                               Navigator.pop(context);
-                              onOpenArticle(articleId);
+                              target();
                             },
                     );
                   }),
@@ -1337,10 +943,7 @@ class _CompactAlertRow extends StatelessWidget {
                       _timeAgo(),
                       if (alert.aiProviderName != null) alert.aiProviderName!,
                     ].join(' · '),
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      color: const Color(0xFF94A3B8),
-                    ),
+                    style: GoogleFonts.inter(fontSize: 11, color: _faint),
                   ),
                 ],
               ),

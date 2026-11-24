@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # assets, so the first run is worth watching in the log.
     asset_check_interval_hours: int = 0
 
+    # How often the daily closes of held assets are fetched from Yahoo for the
+    # portfolio line on Home (app.services.price_history_service); 0 turns it off.
+    price_history_interval_hours: int = 6
+
     # How often manual mode looks for sources that are due; each source then has
     # its own interval. 0 turns manual mode's fetching off.
     manual_check_interval_minutes: int = 0

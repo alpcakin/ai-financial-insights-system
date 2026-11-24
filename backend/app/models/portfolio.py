@@ -44,6 +44,15 @@ class AssetResponse(BaseModel):
     added_at: str
 
 
+class HistoryPoint(BaseModel):
+    day: str
+    value: float
+
+
+class PortfolioHistoryResponse(BaseModel):
+    points: list[HistoryPoint]
+
+
 class PortfolioResponse(BaseModel):
     assets: list[AssetResponse]
     total_value: float

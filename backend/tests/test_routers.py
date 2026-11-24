@@ -124,7 +124,8 @@ def test_add_portfolio_201(client, mock_db):
     from unittest.mock import patch
     import pandas as pd
 
-    with patch("app.services.portfolio_service.yf.Ticker") as mock_ticker:
+    with patch("app.services.portfolio_service.yf.Ticker") as mock_ticker, \
+            patch("app.routers.portfolio.ensure_closes") as ensure_closes:
         mock_ticker.return_value.history.return_value = pd.DataFrame(
             {"Close": [149.0, 155.0]},
             index=pd.date_range("2026-04-27", periods=2),
@@ -142,6 +143,24 @@ def test_add_portfolio_201(client, mock_db):
             "purchase_price": 150.0,
         })
     assert r.status_code == 201
+    # The new holding's closes are fetched after the response, once for everyone.
+    assert ensure_closes.call_args.args[1:] == (ASSET_ROW["asset_symbol"], ASSET_ROW["asset_type"])
+
+
+def test_portfolio_history_200(client, mock_db):
+    rows = {
+        "portfolio": [{"asset_symbol": "AAPL", "quantity": 2}],
+        "asset_closes": [{"symbol": "AAPL", "close_date": "2099-01-01", "price": 100.0}],
+    }
+    mock_db.table.side_effect = lambda name: chain_mock(rows.get(name, []))
+    r = client.get("/portfolio/history")
+    assert r.status_code == 200
+    assert r.json()["points"] == [{"day": "2099-01-01", "value": 200.0}]
+
+
+@pytest.mark.parametrize("days", [3, 365])
+def test_portfolio_history_days_have_limits(client, days):
+    assert client.get("/portfolio/history", params={"days": days}).status_code == 422
 
 
 def test_delete_portfolio_204(client, mock_db):
@@ -340,6 +359,21 @@ def test_put_alert_setting_untracked_asset_404(client, mock_db):
     mock_db.table.side_effect = lambda _: chain_mock([])
     r = client.put("/alerts/settings/AAPL", json={"mode": "off"})
     assert r.status_code == 404
+
+
+def test_usual_move_200(client, monkeypatch):
+    move = MagicMock(sigma=0.016)
+    monkeypatch.setattr("app.services.alert_service._fetch_volatility_move", lambda symbol, asset_type: move)
+    r = client.get("/alerts/usual-move/AAPL")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["asset_symbol"] == "AAPL"
+    assert body["usual_move_pct"] == pytest.approx(1.6)
+    assert body["threshold_pct"] == pytest.approx(4.128)
+
+
+def test_usual_move_unknown_asset_404(client):
+    assert client.get("/alerts/usual-move/NOPE").status_code == 404
 
 
 # ── Reports ───────────────────────────────────────────────────────────────────

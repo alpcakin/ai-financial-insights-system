@@ -27,6 +27,7 @@ async def lifespan(app: FastAPI):
     from app.services.alert_service import generate_volatility_alerts
     from app.services.asset_check_service import run_asset_check
     from app.services.manual_service import refresh_package_sources
+    from app.services.price_history_service import refresh_closes
     from app.services.report_service import REPORT_HOUR
     from app.services.retention_service import purge_old_data
     from app.services.ai import get_registry
@@ -92,6 +93,22 @@ async def lifespan(app: FastAPI):
             misfire_grace_time=3600,
         )
         logger.info("Asset check scheduled every %d h", settings.asset_check_interval_hours)
+
+    if settings.price_history_interval_hours > 0:
+        def _price_history():
+            try:
+                refresh_closes(get_db())
+            except Exception as e:
+                logger.error("Refreshing daily closes failed: %s", e)
+
+        scheduler.add_job(
+            _price_history,
+            "interval",
+            hours=settings.price_history_interval_hours,
+            next_run_time=datetime.now(),
+            misfire_grace_time=3600,
+        )
+        logger.info("Daily closes refreshed every %d h", settings.price_history_interval_hours)
 
     if settings.retention_days > 0:
         def _retention():

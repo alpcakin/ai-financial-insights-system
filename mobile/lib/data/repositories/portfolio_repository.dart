@@ -43,6 +43,26 @@ class PortfolioRepository {
     throw PortfolioException(body['detail'] as String? ?? 'Failed to load portfolio');
   }
 
+  /// The portfolio's value at each daily close of the last [days] days, oldest first.
+  Future<List<double>> getHistory(String token, {int days = 30}) async {
+    final response = await http
+        .get(
+          Uri.parse('${AppConstants.baseUrl}/portfolio/history').replace(queryParameters: {'days': '$days'}),
+          headers: _headers(token),
+        )
+        .timeout(_timeout);
+
+    final body = _decode(response);
+
+    if (response.statusCode == 200) {
+      return (body['points'] as List<dynamic>)
+          .map((p) => ((p as Map<String, dynamic>)['value'] as num).toDouble())
+          .toList();
+    }
+
+    throw PortfolioException(body['detail'] as String? ?? 'Failed to load the portfolio history');
+  }
+
   Future<PortfolioAsset> addAsset(
     String token, {
     required String symbol,

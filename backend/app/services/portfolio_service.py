@@ -1,5 +1,6 @@
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, timedelta
 
 from fastapi import HTTPException, status
 from supabase import Client
@@ -130,6 +131,53 @@ def get_portfolio(db: Client, user_id: str) -> PortfolioResponse:
         total_daily_change=round(total_daily_change, 2),
         total_daily_change_pct=round(total_daily_change_pct, 2),
     )
+
+
+#: Rows read from asset_closes per request; the server returns at most 1000.
+_PAGE = 1000
+
+
+def get_portfolio_history(db: Client, user_id: str, days: int) -> dict:
+    """The user's portfolio value at each close of the last ``days`` days, from the
+    shared asset_closes table, with no request to Yahoo. Like the weekly report it
+    values today's holdings: a purchase within the period shows as if it had been
+    held from the start. Days where a holding has no price yet are left out, so
+    the line never jumps when an asset's history begins."""
+    holdings = db.table("portfolio").select("asset_symbol, quantity").eq("user_id", user_id).execute().data
+    quantities = {row["asset_symbol"]: float(row["quantity"]) for row in holdings}
+    if not quantities:
+        return {"points": []}
+
+    start = date.today() - timedelta(days=days)
+    # A week earlier as well, so every holding has a close to carry into the first day.
+    since = (start - timedelta(days=7)).isoformat()
+    rows: list[dict] = []
+    while True:
+        page = (
+            db.table("asset_closes")
+            .select("symbol, close_date, price")
+            .in_("symbol", list(quantities))
+            .gte("close_date", since)
+            .order("close_date")
+            .range(len(rows), len(rows) + _PAGE - 1)
+            .execute()
+        ).data
+        rows.extend(page)
+        if len(page) < _PAGE:
+            break
+
+    by_day: dict[str, dict[str, float]] = {}
+    for row in rows:
+        by_day.setdefault(row["close_date"], {})[row["symbol"]] = float(row["price"])
+
+    latest: dict[str, float] = {}
+    points = []
+    for day in sorted(by_day):
+        latest.update(by_day[day])
+        if day < start.isoformat() or len(latest) < len(quantities):
+            continue
+        points.append({"day": day, "value": round(sum(q * latest[s] for s, q in quantities.items()), 2)})
+    return {"points": points}
 
 
 def add_asset(db: Client, user_id: str, request: AddAssetRequest) -> AssetResponse:
