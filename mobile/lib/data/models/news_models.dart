@@ -174,17 +174,33 @@ class FeedArticle {
   }
 }
 
+class FeedCategory {
+  final String name;
+  final bool followed;
+
+  const FeedCategory({required this.name, required this.followed});
+
+  factory FeedCategory.fromJson(Map<String, dynamic> json) => FeedCategory(
+        name: json['name'] as String,
+        followed: json['followed'] as bool? ?? false,
+      );
+}
+
 class FeedResponse {
   final List<FeedArticle> articles;
   final int total;
   final int offset;
   final int limit;
 
+  /// Every category in the feed, followed ones first. Only the first page has it.
+  final List<FeedCategory>? categories;
+
   const FeedResponse({
     required this.articles,
     required this.total,
     required this.offset,
     required this.limit,
+    this.categories,
   });
 
   factory FeedResponse.fromJson(Map<String, dynamic> json) => FeedResponse(
@@ -194,6 +210,9 @@ class FeedResponse {
         total: json['total'] as int,
         offset: json['offset'] as int,
         limit: json['limit'] as int,
+        categories: (json['categories'] as List<dynamic>?)
+            ?.map((e) => FeedCategory.fromJson(e as Map<String, dynamic>))
+            .toList(),
       );
 }
 

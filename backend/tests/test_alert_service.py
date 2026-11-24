@@ -485,6 +485,13 @@ def test_impact_alert_is_pushed_when_turned_on():
     notify.assert_called_once()
 
 
+def test_impact_push_carries_the_story_to_open():
+    db = _impact_db({"fcm_token": "tok1"})
+    with patch("app.services.alert_service.notify_alert_with_token") as notify:
+        generate_impact_alerts(db, "article-1", {"u1"}, _SEVERE, ai_provider="openai")
+    assert notify.call_args.kwargs["data"] == {"article_id": "article-1"}
+
+
 def test_impact_alert_at_high_is_stored_but_not_pushed_for_a_very_high_choice():
     db = _impact_db({"fcm_token": "tok1", "impact_alert_level": "very_high"})
     with patch("app.services.alert_service.notify_alert_with_token") as notify:

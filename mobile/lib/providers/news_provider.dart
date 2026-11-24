@@ -7,6 +7,9 @@ final newsRepositoryProvider = Provider<NewsRepository>((_) => NewsRepository())
 
 class NewsState {
   final List<FeedArticle> articles;
+
+  /// Every category in the feed, followed ones first; the filter's choices.
+  final List<FeedCategory> categories;
   final bool isLoading;
   final String? error;
   final String? selectedCategory;
@@ -15,6 +18,7 @@ class NewsState {
 
   const NewsState({
     this.articles = const [],
+    this.categories = const [],
     this.isLoading = false,
     this.error,
     this.selectedCategory,
@@ -24,6 +28,7 @@ class NewsState {
 
   NewsState copyWith({
     List<FeedArticle>? articles,
+    List<FeedCategory>? categories,
     bool? isLoading,
     String? error,
     String? selectedCategory,
@@ -33,6 +38,7 @@ class NewsState {
   }) =>
       NewsState(
         articles: articles ?? this.articles,
+        categories: categories ?? this.categories,
         isLoading: isLoading ?? this.isLoading,
         error: clearError ? null : error ?? this.error,
         selectedCategory: selectedCategory ?? this.selectedCategory,
@@ -55,22 +61,28 @@ class NewsNotifier extends StateNotifier<NewsState> {
   NewsNotifier(this._repository) : super(const NewsState());
 
   Future<void> load(String token) async {
+    final category = state.selectedCategory;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final response = await _repository.getFeed(
         token,
         limit: _pageSize,
         offset: 0,
-        category: state.selectedCategory,
+        category: category,
       );
+      // Another category was chosen while this one loaded; its own load shows it.
+      if (state.selectedCategory != category) return;
       state = state.copyWith(
         articles: response.articles,
+        categories: response.categories,
         isLoading: false,
         hasMore: response.articles.length >= _pageSize,
       );
     } on NewsException catch (e) {
+      if (state.selectedCategory != category) return;
       state = state.copyWith(isLoading: false, error: e.message);
     } catch (_) {
+      if (state.selectedCategory != category) return;
       state = state.copyWith(isLoading: false, error: 'Network error. Please try again.');
     }
   }

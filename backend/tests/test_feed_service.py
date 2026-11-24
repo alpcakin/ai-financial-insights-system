@@ -15,6 +15,7 @@ from app.services.feed_service import (
     get_article_analyses,
     get_asset_news,
     get_feed,
+    get_feed_article,
     mark_read,
 )
 from tests.catalog import CATALOG, catalog_row
@@ -218,8 +219,10 @@ def test_get_feed_no_filter_merges_analysis_and_reads_fallback_flag():
         return m
 
     db.table.return_value.select.side_effect = make_select
+    db.rpc.return_value.execute.return_value.data = [{"name": "Tech", "followed": True}]
     result = get_feed(db, "u1", 20, 0, None)
     assert result["total"] == 1
+    assert result["categories"] == [{"name": "Tech", "followed": True}]
     article = result["articles"][0]
     assert article["title"] == "T"
     assert article["summary"] == "s"
@@ -230,48 +233,96 @@ def test_get_feed_no_filter_merges_analysis_and_reads_fallback_flag():
     assert article["read"] is False
 
 
+def _category_db(picked, rows, categories=()):
+    """``picked`` is what feed_category_page returns, ``rows`` the feed entries."""
+    db = MagicMock()
+
+    def rpc(name, params):
+        call = MagicMock()
+        call.execute.return_value.data = list(picked if name == "feed_category_page" else categories)
+        return call
+
+    db.rpc.side_effect = rpc
+    tables = {"user_news_feed": chain_mock(rows)}
+    db.table.side_effect = lambda name: tables.get(name) or chain_mock([])
+    return db
+
+
+def _entry(entry_id, title, **extra):
+    return {"id": entry_id, "read": False, "created_at": "2026-04-28",
+            "articles": {**ARTICLE, "id": f"a-{entry_id}", "title": title}, "article_analyses": ANALYSIS, **extra}
+
+
+def test_get_feed_category_page_is_picked_by_the_database_in_its_order():
+    rows = [_entry("f1", "Older"), _entry("f2", "Newer")]
+    db = _category_db([{"entry_id": "f2", "total": 7}, {"entry_id": "f1", "total": 7}], rows)
+    result = get_feed(db, "u1", 2, 0, "Tech")
+    assert [a["title"] for a in result["articles"]] == ["Newer", "Older"]
+    assert result["total"] == 7
+    db.rpc.assert_any_call(
+        "feed_category_page", {"p_user_id": "u1", "p_category": "Tech", "p_limit": 2, "p_offset": 0},
+    )
+
+
 def test_get_feed_keeps_delivery_flag_after_model_change():
     """The entry was delivered by the user's own model at the time; the
     user's current model no longer matters."""
-    db = MagicMock()
-    db.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = [
-        {"read": True, "is_fallback": False, "created_at": "2026-04-28",
-         "articles": ARTICLE, "article_analyses": ANALYSIS},
-    ]
+    db = _category_db([{"entry_id": "f1", "total": 1}], [_entry("f1", "T", read=True, is_fallback=False)])
     result = get_feed(db, "u1", 20, 0, "Tech")
-    assert result["total"] == 1
     assert result["articles"][0]["is_fallback"] is False
     assert result["articles"][0]["read"] is True
 
 
-def test_get_feed_category_filter_uses_analysis_categories():
-    fin = {**ANALYSIS, "id": "an2", "related_categories": ["Finance"]}
-    db = MagicMock()
-    db.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = [
-        {"read": False, "created_at": "2026-04-28",
-         "articles": {**ARTICLE, "title": "Tech"}, "article_analyses": ANALYSIS},
-        {"read": False, "created_at": "2026-04-28",
-         "articles": {**ARTICLE, "id": "a2", "title": "Finance"}, "article_analyses": fin},
-    ]
+def test_get_feed_empty_category_reads_no_entries():
+    db = _category_db([], [])
     result = get_feed(db, "u1", 20, 0, "Tech")
-    assert result["total"] == 1
-    assert result["articles"][0]["title"] == "Tech"
+    assert result["articles"] == [] and result["total"] == 0
+    assert "user_news_feed" not in [c.args[0] for c in db.table.call_args_list]
 
 
-def test_get_feed_row_without_analysis():
-    db = MagicMock()
-    db.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.execute.return_value.data = [
-        {"read": False, "created_at": "2026-04-28",
-         "articles": ARTICLE, "article_analyses": None},
-    ]
-    result = get_feed(db, "u1", 20, 0, "Tech")
-    assert result["total"] == 0
+def test_get_feed_lists_every_category_on_the_first_page_whatever_is_selected():
+    categories = [{"name": "Banking", "followed": True}, {"name": "Crypto", "followed": False}]
+    db = _category_db([], [], categories)
+    assert get_feed(db, "u1", 20, 0, "Tech")["categories"] == categories
+    db.rpc.assert_any_call("feed_categories", {"p_user_id": "u1"})
+    assert "categories" not in get_feed(db, "u1", 20, 20, "Tech")
 
 
 def test_mark_read():
     db = make_db({})
     mark_read(db, "u1", "article-1")
     db.table.assert_called_with("user_news_feed")
+
+
+# ── One story of the feed ────────────────────────────────────────────────────
+
+def _entry_db(entries, later_reports=()):
+    feed = chain_mock(entries)
+    tables = {"user_news_feed": feed, "articles": chain_mock(list(later_reports))}
+    db = MagicMock()
+    db.table.side_effect = lambda name: tables.get(name) or chain_mock([])
+    return db, feed
+
+
+def test_feed_article_is_the_users_entry_as_the_feed_shows_it():
+    entry = {"read": True, "is_fallback": True, "created_at": "2026-04-28",
+             "articles": ARTICLE, "article_analyses": ANALYSIS}
+    later = {"duplicate_of": "a1", "title": "T2", "url": "http://y.com", "source": "WSJ",
+             "published_at": "2026-04-29"}
+    db, feed = _entry_db([entry], [later])
+    article = get_feed_article(db, "u1", "a1")
+    assert article["summary"] == "s" and article["analyzed_by"] == "gemini"
+    assert article["is_fallback"] is True and article["read"] is True
+    assert [s["source"] for s in article["sources"]] == ["Reuters", "WSJ"]
+    feed.eq.assert_any_call("user_id", "u1")
+    feed.eq.assert_any_call("article_id", "a1")
+
+
+def test_feed_article_outside_the_users_feed_does_not_exist():
+    db, _ = _entry_db([])
+    with pytest.raises(HTTPException) as e:
+        get_feed_article(db, "u1", "a1")
+    assert e.value.status_code == 404
 
 
 # ── Sources of a story ───────────────────────────────────────────────────────

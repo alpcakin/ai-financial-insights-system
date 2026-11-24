@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../providers/alert_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../news/article_widgets.dart';
 import 'alert_card.dart';
 
 class AlertsScreen extends ConsumerStatefulWidget {
@@ -112,8 +113,14 @@ class _AlertsScreenState extends ConsumerState<AlertsScreen> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.only(top: 8, bottom: 24),
                     itemCount: state.alerts.length,
-                    itemBuilder: (context, index) =>
-                        AlertCard(alert: state.alerts[index]),
+                    itemBuilder: (context, index) {
+                      final alert = state.alerts[index];
+                      final articleId = alert.articleId;
+                      return AlertCard(
+                        alert: alert,
+                        onTap: articleId == null ? null : () => openFeedArticle(context, ref, articleId),
+                      );
+                    },
                   ),
       ),
     );

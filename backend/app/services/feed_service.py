@@ -268,6 +268,23 @@ def _attach_sources(db: Client, articles: list[dict]) -> None:
         article["sources"] = [own] + extra.get(article["id"], [])
 
 
+def _category_page(db: Client, user_id: str, category: str, limit: int, offset: int) -> tuple[list[dict], int]:
+    """One page of the user's feed entries in a category, newest first, and the total.
+    The database picks the entries (migration 032), by the rule _attach_topics shows."""
+    picked = db.rpc("feed_category_page", {
+        "p_user_id": user_id,
+        "p_category": category,
+        "p_limit": limit,
+        "p_offset": offset,
+    }).execute().data or []
+    ids = [row["entry_id"] for row in picked]
+    if not ids:
+        return [], 0
+    rows = db.table("user_news_feed").select("id, " + FEED_SELECT).in_("id", ids).execute().data
+    by_id = {row["id"]: row for row in rows}
+    return [by_id[i] for i in ids if i in by_id], picked[0]["total"]
+
+
 def get_feed(
     db: Client,
     user_id: str,
@@ -275,43 +292,53 @@ def get_feed(
     offset: int,
     category: str | None,
 ) -> dict:
+    """A page of the user's feed, newest first, optionally in one category. The first
+    page also lists every category in the feed, followed ones first, so the app's
+    filter shows the same choices whichever one is selected."""
     if category:
-        result = (
+        page, total = _category_page(db, user_id, category, limit, offset)
+    else:
+        total = (
+            db.table("user_news_feed")
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .execute()
+        ).count or 0
+        page = (
             db.table("user_news_feed")
             .select(FEED_SELECT)
             .eq("user_id", user_id)
             .order("created_at", desc=True)
-            .limit(500)
+            .range(offset, offset + limit - 1)
             .execute()
-        )
-        merged = [_merge_feed_row(r) for r in result.data]
-        _attach_topics(db, merged)
-        matching = [a for a in merged if category in (a.get("related_categories") or [])]
-        articles = matching[offset: offset + limit]
-        _attach_sources(db, articles)
-        return {"articles": articles, "total": len(matching), "offset": offset, "limit": limit}
-
-    count_result = (
-        db.table("user_news_feed")
-        .select("id", count="exact")
-        .eq("user_id", user_id)
-        .execute()
-    )
-    total = count_result.count or 0
-
-    page = (
-        db.table("user_news_feed")
-        .select(FEED_SELECT)
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .range(offset, offset + limit - 1)
-        .execute()
-    ).data
+        ).data
 
     articles = [_merge_feed_row(r) for r in page]
     _attach_topics(db, articles)
     _attach_sources(db, articles)
-    return {"articles": articles, "total": total, "offset": offset, "limit": limit}
+    result = {"articles": articles, "total": total, "offset": offset, "limit": limit}
+    if offset == 0:
+        result["categories"] = db.rpc("feed_categories", {"p_user_id": user_id}).execute().data or []
+    return result
+
+
+def get_feed_article(db: Client, user_id: str, article_id: str) -> dict:
+    """One entry of the user's feed, as the feed shows it, for opening a story from
+    an alert, a push or a report. A story that is not in the user's feed, or was
+    cleaned up since, does not exist."""
+    rows = (
+        db.table("user_news_feed")
+        .select(FEED_SELECT)
+        .eq("user_id", user_id)
+        .eq("article_id", article_id)
+        .execute()
+    ).data
+    if not rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This story is no longer available")
+    articles = [_merge_feed_row(rows[0])]
+    _attach_topics(db, articles)
+    _attach_sources(db, articles)
+    return articles[0]
 
 
 def _provider_order(user: dict) -> list[str]:

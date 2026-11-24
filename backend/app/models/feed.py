@@ -39,11 +39,18 @@ class FeedArticle(BaseModel):
     matched_topics: list[str] = []
 
 
+class FeedCategory(BaseModel):
+    name: str
+    followed: bool
+
+
 class FeedResponse(BaseModel):
     articles: list[FeedArticle]
     total: int
     offset: int
     limit: int
+    # Every category in the user's feed, followed ones first; on the feed's first page only.
+    categories: list[FeedCategory] | None = None
 
 
 class ArticleAnalysis(BaseModel):

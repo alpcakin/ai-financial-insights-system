@@ -65,18 +65,10 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
     ref.read(newsProvider.notifier).setCategory(token, category);
   }
 
-  List<String> _allCategories(List<FeedArticle> articles) {
-    final seen = <String>{};
-    for (final a in articles) {
-      seen.addAll(a.relatedCategories);
-    }
-    return seen.toList()..sort();
-  }
-
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(newsProvider);
-    final categories = _allCategories(state.articles);
+    final categories = state.categories;
     final selected = state.selectedCategory;
     final unread = state.articles.where((a) => !a.read).length;
 
@@ -148,9 +140,10 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
                     ),
                     ...categories.map(
                       (cat) => _CategoryPill(
-                        label: cat,
-                        selected: selected == cat,
-                        onTap: () => _setCategory(cat),
+                        label: cat.name,
+                        followed: cat.followed,
+                        selected: selected == cat.name,
+                        onTap: () => _setCategory(cat.name),
                       ),
                     ),
                   ],
@@ -229,12 +222,21 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
 class _CategoryPill extends StatelessWidget {
   final String label;
   final bool selected;
+
+  /// A category the user follows, marked as on the Interests screen.
+  final bool followed;
   final VoidCallback onTap;
 
-  const _CategoryPill({required this.label, required this.selected, required this.onTap});
+  const _CategoryPill({
+    required this.label,
+    required this.selected,
+    this.followed = false,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final textColor = selected ? Colors.white : const Color(0xFF64748B);
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -247,13 +249,22 @@ class _CategoryPill extends StatelessWidget {
             color: selected ? const Color(0xFF0F172A) : const Color(0xFFE2E8F0),
           ),
         ),
-        child: Text(
-          label,
-          style: GoogleFonts.inter(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: selected ? Colors.white : const Color(0xFF64748B),
-          ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (followed) ...[
+              Icon(Icons.check_rounded, size: 12, color: textColor),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: textColor,
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../core/money.dart';
 import '../../core/severity.dart';
 import '../../data/models/alert_models.dart';
 import '../../data/models/asset_catalog.dart';
@@ -14,6 +15,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/portfolio_provider.dart';
 import '../../providers/watchlist_provider.dart';
 import '../alerts/alerts_screen.dart';
+import '../news/article_widgets.dart';
 import 'alert_setting_sheet.dart';
 import 'asset_browser_modal.dart';
 
@@ -439,7 +441,7 @@ class _PortfolioHeader extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '\$${state.totalValue.toStringAsFixed(2)}',
+              formatAmount(state.totalValue),
               style: GoogleFonts.inter(
                 fontSize: 30,
                 fontWeight: FontWeight.w700,
@@ -457,8 +459,7 @@ class _PortfolioHeader extends StatelessWidget {
                     children: [
                       _StatBlock(
                         label: 'All-time P&L',
-                        value:
-                            '${pnlPositive ? '+' : ''}\$${pnl.abs().toStringAsFixed(2)}',
+                        value: formatAmount(pnl, signed: true),
                         sub:
                             '${pnlPositive ? '+' : ''}${pnlPct.toStringAsFixed(2)}%',
                         positive: pnlPositive,
@@ -466,8 +467,7 @@ class _PortfolioHeader extends StatelessWidget {
                       const SizedBox(height: 14),
                       _StatBlock(
                         label: 'Today',
-                        value:
-                            '${dailyPositive ? '+' : ''}\$${daily.abs().toStringAsFixed(2)}',
+                        value: formatAmount(daily, signed: true),
                         sub:
                             '${dailyPositive ? '+' : ''}${dailyPct.toStringAsFixed(2)}%',
                         positive: dailyPositive,
@@ -687,7 +687,7 @@ class _AssetTile extends StatelessWidget {
                   children: [
                     Text(
                       asset.currentPrice != null
-                          ? '\$${asset.currentPrice!.toStringAsFixed(2)}'
+                          ? formatPrice(asset.currentPrice!)
                           : '—',
                       style: GoogleFonts.inter(
                         fontSize: 14,
@@ -697,7 +697,7 @@ class _AssetTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '\$${currentVal.toStringAsFixed(2)}',
+                      formatAmount(currentVal),
                       style: GoogleFonts.inter(
                         fontSize: 11,
                         color: const Color(0xFF94A3B8),
@@ -856,7 +856,7 @@ class _WatchlistTile extends StatelessWidget {
             children: [
               Text(
                 item.currentPrice != null
-                    ? '\$${item.currentPrice!.toStringAsFixed(2)}'
+                    ? formatPrice(item.currentPrice!)
                     : '—',
                 style: GoogleFonts.inter(
                   fontSize: 14,
@@ -1171,7 +1171,10 @@ class _AlertsBellButton extends ConsumerWidget {
       onPressed: () => showDialog<void>(
         context: context,
         barrierColor: Colors.transparent,
-        builder: (_) => _AlertsPopup(onSeeAll: onSeeAll),
+        builder: (_) => _AlertsPopup(
+          onSeeAll: onSeeAll,
+          onOpenArticle: (id) => openFeedArticle(context, ref, id),
+        ),
       ),
     );
   }
@@ -1179,8 +1182,9 @@ class _AlertsBellButton extends ConsumerWidget {
 
 class _AlertsPopup extends ConsumerWidget {
   final VoidCallback onSeeAll;
+  final void Function(String articleId) onOpenArticle;
 
-  const _AlertsPopup({required this.onSeeAll});
+  const _AlertsPopup({required this.onSeeAll, required this.onOpenArticle});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1230,7 +1234,18 @@ class _AlertsPopup extends ConsumerWidget {
                     ),
                   )
                 else
-                  ...preview.map((a) => _CompactAlertRow(alert: a)),
+                  ...preview.map((a) {
+                    final articleId = a.articleId;
+                    return _CompactAlertRow(
+                      alert: a,
+                      onTap: articleId == null
+                          ? null
+                          : () {
+                              Navigator.pop(context);
+                              onOpenArticle(articleId);
+                            },
+                    );
+                  }),
                 if (alerts.isNotEmpty) ...[
                   const Divider(height: 1),
                   TextButton(
@@ -1259,8 +1274,9 @@ class _AlertsPopup extends ConsumerWidget {
 
 class _CompactAlertRow extends StatelessWidget {
   final AlertItem alert;
+  final VoidCallback? onTap;
 
-  const _CompactAlertRow({required this.alert});
+  const _CompactAlertRow({required this.alert, this.onTap});
 
   String _timeAgo() {
     final dt = DateTime.tryParse(alert.createdAt);
@@ -1274,60 +1290,63 @@ class _CompactAlertRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = severityColor(alert.severity);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: color.withAlpha(15),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: color.withAlpha(60)),
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: color.withAlpha(15),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: color.withAlpha(60)),
+              ),
+              child: Icon(
+                alert.alertType == 'model_stopped'
+                    ? Icons.warning_amber_rounded
+                    : alert.alertType == 'impact'
+                        ? Icons.article_rounded
+                        : Icons.trending_up_rounded,
+                color: color,
+                size: 16,
+              ),
             ),
-            child: Icon(
-              alert.alertType == 'model_stopped'
-                  ? Icons.warning_amber_rounded
-                  : alert.alertType == 'impact'
-                      ? Icons.article_rounded
-                      : Icons.trending_up_rounded,
-              color: color,
-              size: 16,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (alert.message != null)
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (alert.message != null)
+                    Text(
+                      alert.message!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: const Color(0xFF334155),
+                        height: 1.35,
+                      ),
+                    ),
+                  const SizedBox(height: 2),
                   Text(
-                    alert.message!,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    [
+                      _timeAgo(),
+                      if (alert.aiProviderName != null) alert.aiProviderName!,
+                    ].join(' · '),
                     style: GoogleFonts.inter(
-                      fontSize: 12,
-                      color: const Color(0xFF334155),
-                      height: 1.35,
+                      fontSize: 11,
+                      color: const Color(0xFF94A3B8),
                     ),
                   ),
-                const SizedBox(height: 2),
-                Text(
-                  [
-                    _timeAgo(),
-                    if (alert.aiProviderName != null) alert.aiProviderName!,
-                  ].join(' · '),
-                  style: GoogleFonts.inter(
-                    fontSize: 11,
-                    color: const Color(0xFF94A3B8),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

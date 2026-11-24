@@ -5,9 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'providers/auth_provider.dart';
+import 'screens/alerts/alerts_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/main_screen.dart';
+import 'screens/news/article_widgets.dart';
 import 'services/fcm_service.dart';
+
+final _navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -132,6 +136,7 @@ class App extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'Financial Insights',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
@@ -169,6 +174,18 @@ class _AuthGateState extends ConsumerState<_AuthGate> with WidgetsBindingObserve
     }
   }
 
+  /// A tapped push opens its story, or the alert list when it has none.
+  void _openFromNotification(Map<String, dynamic> data) {
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null || !ref.read(authProvider).isAuthenticated) return;
+    final articleId = data['article_id'];
+    if (articleId is String) {
+      openFeedArticle(navigator.context, ref, articleId);
+    } else {
+      navigator.push(MaterialPageRoute(builder: (_) => const AlertsScreen()));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
@@ -176,7 +193,7 @@ class _AuthGateState extends ConsumerState<_AuthGate> with WidgetsBindingObserve
     if (authState.isAuthenticated && !_fcmInitialized && authState.token != null) {
       _fcmInitialized = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        FcmService.init(() => ref.read(authProvider).token);
+        FcmService.init(() => ref.read(authProvider).token, onOpen: _openFromNotification);
       });
     }
 

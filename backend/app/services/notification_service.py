@@ -37,7 +37,8 @@ def _init_firebase():
         _firebase_available = False
 
 
-def send_push(fcm_token: str, title: str, body: str) -> bool:
+def send_push(fcm_token: str, title: str, body: str, data: dict[str, str] | None = None) -> bool:
+    """``data`` travels with the push and tells the app what to open when it is tapped."""
     _init_firebase()
 
     if not _firebase_available:
@@ -48,6 +49,7 @@ def send_push(fcm_token: str, title: str, body: str) -> bool:
 
         message = messaging.Message(
             notification=messaging.Notification(title=title, body=body),
+            data=data,
             token=fcm_token,
         )
         messaging.send(message)
@@ -92,7 +94,9 @@ def batch_fetch_impact_push(db: Client, user_ids: set[str]) -> dict[str, tuple[s
     }
 
 
-def notify_alert_with_token(db: Client, alert_id: str, fcm_token: str, title: str, body: str):
-    sent = send_push(fcm_token, title, body)
+def notify_alert_with_token(
+    db: Client, alert_id: str, fcm_token: str, title: str, body: str, data: dict[str, str] | None = None,
+):
+    sent = send_push(fcm_token, title, body, data)
     if sent:
         db.table("alerts").update({"notification_sent": True}).eq("id", alert_id).execute()

@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../core/money.dart';
 import '../../core/severity.dart';
 import '../../data/models/report_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/report_provider.dart';
 import '../../widgets/advice_notice.dart';
+import '../news/article_widgets.dart';
 
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({super.key});
@@ -213,8 +215,8 @@ class _ReportCard extends StatelessWidget {
                     _AssetPerformanceSection(assets: content.portfolioPerformance),
                     const SizedBox(height: 4),
                     Text(
-                      '\$${content.totalValueNow.toStringAsFixed(2)} now, '
-                      'vs \$${content.totalValue7dAgo.toStringAsFixed(2)} a week earlier',
+                      '${formatAmount(content.totalValueNow)} now, '
+                      'vs ${formatAmount(content.totalValue7dAgo)} a week earlier',
                       style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF94A3B8)),
                     ),
                   ],
@@ -416,7 +418,7 @@ class _AssetPerformanceSection extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  '\$${a.valueNow.toStringAsFixed(2)}',
+                  formatAmount(a.valueNow),
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     color: const Color(0xFF64748B),
@@ -431,13 +433,13 @@ class _AssetPerformanceSection extends StatelessWidget {
   }
 }
 
-class _TopArticlesSection extends StatelessWidget {
+class _TopArticlesSection extends ConsumerWidget {
   final List<ArticleSummary> articles;
 
   const _TopArticlesSection({required this.articles});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -453,7 +455,8 @@ class _TopArticlesSection extends StatelessWidget {
         const SizedBox(height: 10),
         ...articles.map((a) {
           final color = severityColor(a.severity);
-          return Container(
+          final id = a.id;
+          final item = Container(
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -526,6 +529,9 @@ class _TopArticlesSection extends StatelessWidget {
               ],
             ),
           );
+          return id == null
+              ? item
+              : GestureDetector(onTap: () => openFeedArticle(context, ref, id), child: item);
         }),
       ],
     );

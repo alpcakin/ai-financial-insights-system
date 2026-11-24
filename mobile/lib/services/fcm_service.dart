@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -13,12 +15,17 @@ class FcmService {
   static const _channelName = 'Financial Alerts';
 
   static bool _listening = false;
+  static void Function(Map<String, dynamic> data)? _onOpen;
 
   /// [authToken] is read on every call because the access token is renewed
   /// while the app runs. Runs again after each login; the listeners are
-  /// added only once.
-  static Future<void> init(String? Function() authToken) async {
+  /// added only once. [onOpen] gets the data of a tapped notification.
+  static Future<void> init(
+    String? Function() authToken, {
+    required void Function(Map<String, dynamic> data) onOpen,
+  }) async {
     if (kIsWeb) return;
+    _onOpen = onOpen;
     await _initLocalNotifications();
 
     final settings = await _messaging.requestPermission();
@@ -49,16 +56,23 @@ class FcmService {
       }
     });
 
+    // In the foreground the system shows nothing, so the push is shown as a
+    // local notification that carries the same data.
     FirebaseMessaging.onMessage.listen((message) {
       final notification = message.notification;
       if (notification == null) return;
       _showLocalNotification(
         title: notification.title ?? 'Financial Alert',
         body: notification.body ?? '',
+        data: message.data,
       );
     });
 
-    FirebaseMessaging.onMessageOpenedApp.listen((_) {});
+    FirebaseMessaging.onMessageOpenedApp.listen((message) => _onOpen?.call(message.data));
+
+    // A push tapped while the app was closed started it.
+    final initial = await _messaging.getInitialMessage();
+    if (initial != null) _onOpen?.call(initial.data);
   }
 
   static Future<void> _initLocalNotifications() async {
@@ -68,7 +82,14 @@ class FcmService {
       android: androidSettings,
       iOS: iosSettings,
     );
-    await _localNotifications.initialize(initSettings);
+    await _localNotifications.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (response) {
+        final payload = response.payload;
+        if (payload == null || payload.isEmpty) return;
+        _onOpen?.call(jsonDecode(payload) as Map<String, dynamic>);
+      },
+    );
 
     const channel = AndroidNotificationChannel(
       _channelId,
@@ -83,6 +104,7 @@ class FcmService {
   static Future<void> _showLocalNotification({
     required String title,
     required String body,
+    required Map<String, dynamic> data,
   }) async {
     const androidDetails = AndroidNotificationDetails(
       _channelId,
@@ -98,6 +120,7 @@ class FcmService {
       title,
       body,
       details,
+      payload: jsonEncode(data),
     );
   }
 }

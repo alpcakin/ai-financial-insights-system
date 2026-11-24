@@ -5,8 +5,8 @@ from supabase import Client
 
 from app.core.database import get_db
 from app.dependencies import get_current_user
-from app.models.feed import ArticleAnalysesResponse, FeedResponse, NewsSourcesResponse
-from app.services.feed_service import get_article_analyses, get_asset_news, get_feed, mark_read
+from app.models.feed import ArticleAnalysesResponse, FeedArticle, FeedResponse, NewsSourcesResponse
+from app.services.feed_service import get_article_analyses, get_asset_news, get_feed, get_feed_article, mark_read
 from app.services.news_service import FEEDS
 
 router = APIRouter(prefix='/feed', tags=['feed'])
@@ -37,6 +37,16 @@ def list_asset_news(
     db: Client = Depends(get_db),
 ):
     return get_asset_news(db, current_user, symbol, limit, offset)
+
+
+# Declared after /sources and /asset-news, so those paths are not read as an id.
+@router.get('/{article_id}', response_model=FeedArticle)
+def read_feed_article(
+    article_id: UUID,
+    current_user: dict = Depends(get_current_user),
+    db: Client = Depends(get_db),
+):
+    return get_feed_article(db, current_user['id'], str(article_id))
 
 
 @router.get('/{article_id}/analyses', response_model=ArticleAnalysesResponse)

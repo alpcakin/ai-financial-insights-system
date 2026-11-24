@@ -77,6 +77,20 @@ class NewsRepository {
     throw NewsException(body['detail'] as String? ?? 'Failed to load news');
   }
 
+  Future<FeedArticle> getArticle(String token, String articleId) async {
+    final response = await http
+        .get(Uri.parse('${AppConstants.baseUrl}/feed/$articleId'), headers: _headers(token))
+        .timeout(_timeout);
+
+    final body = _decode(response);
+
+    if (response.statusCode == 200) {
+      return FeedArticle.fromJson(body);
+    }
+
+    throw NewsException(body['detail'] as String? ?? 'Failed to load the story');
+  }
+
   Future<List<ArticleAnalysis>> getAnalyses(String token, String articleId) async {
     final response = await http
         .get(

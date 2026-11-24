@@ -159,9 +159,17 @@ def test_delete_portfolio_204(client, mock_db):
 # ── Feed ─────────────────────────────────────────────────────────────────────
 
 def test_get_feed_200(client, mock_db):
-    mock_db.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value.data = []
+    mock_db.rpc.return_value.execute.return_value.data = [{"name": "Banking", "followed": True}]
     r = client.get("/feed")
     assert r.status_code == 200
+    assert r.json()["categories"] == [{"name": "Banking", "followed": True}]
+
+
+def test_get_feed_by_category_200(client, mock_db):
+    mock_db.rpc.return_value.execute.return_value.data = []
+    r = client.get("/feed", params={"category": "Banking"})
+    assert r.status_code == 200
+    assert r.json()["articles"] == [] and r.json()["total"] == 0
 
 
 def test_asset_news_200(client, mock_db):
@@ -201,6 +209,31 @@ def test_article_analyses_200(client, mock_db):
 
 def test_article_analyses_rejects_a_bad_id(client):
     assert client.get("/feed/not-a-uuid/analyses").status_code == 422
+
+
+def test_feed_article_200(client, mock_db):
+    entry = {
+        "read": False, "is_fallback": False, "created_at": "2026-04-28",
+        "articles": {"id": "00000000-0000-0000-0000-000000000001", "title": "T", "url": "https://x",
+                     "source": "CNBC", "published_at": None},
+        "article_analyses": {
+            "provider": "openai", "summary": "S", "sentiment_label": "neutral", "severity": 3,
+            "related_categories": [], "related_assets": ["AAPL"], "asset_impacts": [],
+        },
+    }
+    mock_db.table.side_effect = lambda name: chain_mock([entry] if name == "user_news_feed" else [])
+    r = client.get("/feed/00000000-0000-0000-0000-000000000001")
+    assert r.status_code == 200
+    assert r.json()["summary"] == "S" and r.json()["severity"] == 3
+
+
+def test_feed_article_not_in_the_feed_404(client, mock_db):
+    mock_db.table.side_effect = lambda name: chain_mock([])
+    assert client.get("/feed/00000000-0000-0000-0000-000000000001").status_code == 404
+
+
+def test_feed_article_rejects_a_bad_id(client):
+    assert client.get("/feed/not-a-uuid").status_code == 422
 
 
 def test_feed_sources_lists_outlets(client):
@@ -480,7 +513,7 @@ ANY_ID = "00000000-0000-0000-0000-000000000001"
     ("get", "/manual/settings"), ("patch", "/manual/settings"), ("get", "/manual/sources"), ("post", "/manual/sources"),
     ("patch", f"/manual/sources/{ANY_ID}"), ("delete", f"/manual/sources/{ANY_ID}"), ("get", "/manual/models"),
     ("post", "/manual/models"), ("post", f"/manual/models/{ANY_ID}/retry"), ("delete", f"/manual/models/{ANY_ID}"),
-    ("get", "/feed/asset-news?symbol=AAPL"), ("get", f"/feed/{ANY_ID}/analyses"),
+    ("get", "/feed/asset-news?symbol=AAPL"), ("get", f"/feed/{ANY_ID}/analyses"), ("get", f"/feed/{ANY_ID}"),
 ])
 def test_manual_routes_need_a_login(auth_client, method, path):
     assert getattr(auth_client, method)(path).status_code in (401, 403)

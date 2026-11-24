@@ -8,7 +8,10 @@ import '../../widgets/ai_provider_badge.dart';
 class AlertCard extends StatelessWidget {
   final AlertItem alert;
 
-  const AlertCard({super.key, required this.alert});
+  /// Opens what the alert is about; null when there is nothing to open.
+  final VoidCallback? onTap;
+
+  const AlertCard({super.key, required this.alert, this.onTap});
 
   bool get _isImpact => alert.alertType == 'impact';
   bool get _isModelStopped => alert.alertType == 'model_stopped';
@@ -26,7 +29,7 @@ class AlertCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = severityColor(alert.severity);
 
-    return Container(
+    final card = Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -126,8 +129,13 @@ class AlertCard extends StatelessWidget {
               ],
             ),
           ),
+          if (onTap != null) ...[
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right_rounded, size: 20, color: Color(0xFF94A3B8)),
+          ],
         ],
       ),
     );
+    return onTap == null ? card : GestureDetector(onTap: onTap, child: card);
   }
 }

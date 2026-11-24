@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/severity.dart';
 import '../../data/models/news_models.dart';
+import '../../data/repositories/news_repository.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/news_provider.dart';
 import '../../widgets/advice_notice.dart';
@@ -263,6 +264,22 @@ class _AnalysisFailedNote extends StatelessWidget {
       'Analysis failed: none of your models could analyze this article.',
       style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFB45309), height: 1.4),
     );
+  }
+}
+
+/// Opens a story of the user's feed by its id, for alerts, pushes and reports.
+Future<void> openFeedArticle(BuildContext context, WidgetRef ref, String articleId) async {
+  final token = ref.read(authProvider).token ?? '';
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    final article = await ref.read(newsRepositoryProvider).getArticle(token, articleId);
+    if (!context.mounted) return;
+    if (!article.read) ref.read(newsProvider.notifier).markRead(token, article.id);
+    showArticleDetail(context, article);
+  } on NewsException catch (e) {
+    messenger.showSnackBar(SnackBar(content: Text(e.message)));
+  } catch (_) {
+    messenger.showSnackBar(const SnackBar(content: Text('Network error. Please try again.')));
   }
 }
 

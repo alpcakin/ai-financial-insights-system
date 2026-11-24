@@ -97,7 +97,10 @@ def generate_impact_alerts(
                 alert_id = insert.data[0]["id"]
                 fcm_token, min_severity = push_settings.get(user_id, (None, 0))
                 if fcm_token and top["severity"] >= min_severity:
-                    notify_alert_with_token(db, alert_id, fcm_token, f"High Impact: {top['symbol']}", message)
+                    notify_alert_with_token(
+                        db, alert_id, fcm_token, f"High Impact: {top['symbol']}", message,
+                        data={"article_id": article_id},
+                    )
                 created += 1
         except Exception as e:
             logger.error("Failed to create impact alert for user %s: %s", user_id, e)
