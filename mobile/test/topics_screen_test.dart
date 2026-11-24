@@ -16,6 +16,7 @@ const _stablecoins = TopicCategory(id: 't2', name: 'Stablecoins', level: null, k
 class _FakeTopics extends TopicRepository {
   final List<String> added = [];
   final List<String> followed = [];
+  final List<String> unfollowed = [];
   String? rejectWith;
 
   @override
@@ -34,6 +35,9 @@ class _FakeTopics extends TopicRepository {
 
   @override
   Future<void> followTopic(String token, String categoryId) async => followed.add(categoryId);
+
+  @override
+  Future<void> unfollowTopic(String token, String categoryId) async => unfollowed.add(categoryId);
 }
 
 Future<_FakeTopics> _pump(WidgetTester tester) async {
@@ -56,13 +60,37 @@ void main() {
     FlutterSecureStorage.setMockInitialValues({});
   });
 
-  testWidgets('lists the users own topics above the categories', (tester) async {
+  testWidgets('shows everything followed at the top with the sectors closed', (tester) async {
     await _pump(tester);
-    expect(find.text('YOUR TOPICS'), findsOneWidget);
+    expect(find.text('FOLLOWING'), findsOneWidget);
     expect(find.text('Gold'), findsOneWidget);
     expect(find.text('Software'), findsOneWidget);
+    expect(find.text('Technology  1 category'), findsOneWidget);
+    expect(find.text('All of Technology'), findsNothing);
+    expect(find.text('1 following'), findsOneWidget);
     expect(find.text('2 following'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('opens a sector to show its categories', (tester) async {
+    await _pump(tester);
+    await tester.tap(find.byKey(const Key('sector-c1')));
+    await tester.pumpAndSettle();
+    expect(find.text('All of Technology'), findsOneWidget);
+    expect(find.text('Software'), findsNWidgets(2));
+    await tester.tap(find.byKey(const Key('sector-c1')));
+    await tester.pumpAndSettle();
+    expect(find.text('All of Technology'), findsNothing);
+  });
+
+  testWidgets('unfollows from the following list', (tester) async {
+    final repo = await _pump(tester);
+    await tester.tap(find.byKey(const Key('unfollow-c2')));
+    await tester.pump();
+    await tester.pump();
+    expect(repo.unfollowed, ['c2']);
+    expect(find.text('Software'), findsNothing);
+    expect(find.text('1 following'), findsOneWidget);
   });
 
   testWidgets('adds a typed topic and shows it as followed', (tester) async {

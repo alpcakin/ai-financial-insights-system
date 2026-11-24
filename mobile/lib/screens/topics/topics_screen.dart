@@ -17,6 +17,8 @@ class TopicsScreen extends ConsumerStatefulWidget {
 }
 
 class _TopicsScreenState extends ConsumerState<TopicsScreen> {
+  final Set<String> _expanded = {};
+
   @override
   void initState() {
     super.initState();
@@ -29,6 +31,10 @@ class _TopicsScreenState extends ConsumerState<TopicsScreen> {
   void _toggle(TopicCategory category) {
     final token = ref.read(authProvider).token ?? '';
     ref.read(topicProvider.notifier).toggle(token, category);
+  }
+
+  void _toggleSector(String id) {
+    setState(() => _expanded.contains(id) ? _expanded.remove(id) : _expanded.add(id));
   }
 
   @override
@@ -109,25 +115,160 @@ class _TopicsScreenState extends ConsumerState<TopicsScreen> {
                     ],
                   ),
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 32),
-                  itemCount: state.groups.length + 1,
-                  itemBuilder: (context, index) {
-                    if (index == 0) {
-                      return _OwnTopicsSection(
-                        topics: state.ownTopics,
-                        inFlight: state.inFlight,
-                        onToggle: _toggle,
-                      );
-                    }
-                    final group = state.groups[index - 1];
-                    return _TopicGroupSection(
-                      group: group,
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                  children: [
+                    _FollowingSection(
+                      items: [
+                        for (final g in state.groups) ...[
+                          if (g.parent.followed) g.parent,
+                          ...g.children.where((c) => c.followed),
+                        ],
+                        ...state.ownTopics,
+                      ],
                       inFlight: state.inFlight,
                       onToggle: _toggle,
-                    );
-                  },
+                    ),
+                    const SizedBox(height: 24),
+                    _OwnTopicsSection(onToggle: _toggle),
+                    const SizedBox(height: 24),
+                    const _SectionLabel('ALL CATEGORIES'),
+                    const SizedBox(height: 10),
+                    for (final group in state.groups)
+                      _SectorTile(
+                        group: group,
+                        expanded: _expanded.contains(group.parent.id),
+                        onExpand: () => _toggleSector(group.parent.id),
+                        inFlight: state.inFlight,
+                        onToggle: _toggle,
+                      ),
+                  ],
                 ),
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+
+  const _SectionLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: GoogleFonts.inter(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: const Color(0xFF94A3B8),
+        letterSpacing: 0.8,
+      ),
+    );
+  }
+}
+
+/// Everything the user follows in one place, so it can be checked and
+/// removed without scrolling through the catalog.
+class _FollowingSection extends StatelessWidget {
+  final List<TopicCategory> items;
+  final Set<String> inFlight;
+  final void Function(TopicCategory) onToggle;
+
+  const _FollowingSection({
+    required this.items,
+    required this.inFlight,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SectionLabel('FOLLOWING'),
+          const SizedBox(height: 10),
+          if (items.isEmpty)
+            Text(
+              'Nothing yet. Open a sector below or add your own topic.',
+              style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: items
+                  .map((item) => _FollowedChip(
+                        category: item,
+                        isLoading: inFlight.contains(item.id),
+                        onRemove: () => onToggle(item),
+                      ))
+                  .toList(),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FollowedChip extends StatelessWidget {
+  final TopicCategory category;
+  final bool isLoading;
+  final VoidCallback onRemove;
+
+  const _FollowedChip({
+    required this.category,
+    required this.isLoading,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Unfollow ${category.name}',
+      excludeSemantics: true,
+      child: GestureDetector(
+        key: Key('unfollow-${category.id}'),
+        onTap: isLoading ? null : onRemove,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  category.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: category.level == 1 ? FontWeight.w700 : FontWeight.w500,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              isLoading
+                  ? const SizedBox(
+                      height: 12,
+                      width: 12,
+                      child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white),
+                    )
+                  : const Icon(Icons.close_rounded, size: 14, color: Color(0xFFCBD5E1)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -135,15 +276,9 @@ class _TopicsScreenState extends ConsumerState<TopicsScreen> {
 /// Topics the user writes: a company, a person, an event. Matching names are
 /// suggested while typing, so the same topic is not added twice.
 class _OwnTopicsSection extends ConsumerStatefulWidget {
-  final List<TopicCategory> topics;
-  final Set<String> inFlight;
   final void Function(TopicCategory) onToggle;
 
-  const _OwnTopicsSection({
-    required this.topics,
-    required this.inFlight,
-    required this.onToggle,
-  });
+  const _OwnTopicsSection({required this.onToggle});
 
   @override
   ConsumerState<_OwnTopicsSection> createState() => _OwnTopicsSectionState();
@@ -211,104 +346,77 @@ class _OwnTopicsSectionState extends ConsumerState<_OwnTopicsSection> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'YOUR TOPICS',
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF94A3B8),
-              letterSpacing: 0.8,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('ADD YOUR OWN TOPIC'),
+        const SizedBox(height: 6),
+        Text(
+          'Follow a company, a person or an event. Stories related to it reach your feed. '
+          'Up to 10 topics. Matching categories also show up while you type.',
+          style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                key: const Key('topic-input'),
+                controller: _controller,
+                onChanged: _onChanged,
+                onSubmitted: (_) => _add(),
+                textInputAction: TextInputAction.done,
+                inputFormatters: [LengthLimitingTextInputFormatter(_maxLength)],
+                style: GoogleFonts.inter(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'e.g. New York elections',
+                  hintStyle: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF94A3B8)),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _adding ? null : _add,
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF0F172A),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              ),
+              child: _adding
+                  ? const SizedBox(
+                      height: 14,
+                      width: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : Text('Add', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+        if (_error != null) ...[
           const SizedBox(height: 6),
           Text(
-            'Follow a company, a person or an event. Stories related to it reach your feed. '
-            'Up to 10 topics.',
-            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF64748B)),
+            _error!,
+            style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFDC2626)),
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  key: const Key('topic-input'),
-                  controller: _controller,
-                  onChanged: _onChanged,
-                  onSubmitted: (_) => _add(),
-                  textInputAction: TextInputAction.done,
-                  inputFormatters: [LengthLimitingTextInputFormatter(_maxLength)],
-                  style: GoogleFonts.inter(fontSize: 14),
-                  decoration: InputDecoration(
-                    hintText: 'e.g. New York elections',
-                    hintStyle: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF94A3B8)),
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: _adding ? null : _add,
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF0F172A),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                ),
-                child: _adding
-                    ? const SizedBox(
-                        height: 14,
-                        width: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : Text('Add', style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
-              ),
-            ],
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 6),
-            Text(
-              _error!,
-              style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFFDC2626)),
+        ],
+        if (_suggestions.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              borderRadius: BorderRadius.circular(10),
             ),
-          ],
-          if (_suggestions.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Column(
-                children: _suggestions
-                    .map((topic) => _Suggestion(topic: topic, onTap: () => _pick(topic)))
-                    .toList(),
-              ),
-            ),
-          ],
-          if (widget.topics.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: widget.topics
-                  .map((topic) => _TopicChip(
-                        category: topic,
-                        inFlight: widget.inFlight,
-                        onToggle: widget.onToggle,
-                      ))
+            child: Column(
+              children: _suggestions
+                  .map((topic) => _Suggestion(topic: topic, onTap: () => _pick(topic)))
                   .toList(),
             ),
-          ],
-          const SizedBox(height: 4),
-          const Divider(color: Color(0xFFE2E8F0), height: 24),
+          ),
         ],
-      ),
+      ],
     );
   }
 }
@@ -348,53 +456,129 @@ class _Suggestion extends StatelessWidget {
   }
 }
 
-class _TopicGroupSection extends StatelessWidget {
+/// A sector that opens to its categories. Closed by default, so the whole
+/// catalog fits on about one screen; the badge tells what is followed inside.
+class _SectorTile extends StatelessWidget {
   final TopicGroup group;
+  final bool expanded;
+  final VoidCallback onExpand;
   final Set<String> inFlight;
   final void Function(TopicCategory) onToggle;
 
-  const _TopicGroupSection({
+  const _SectorTile({
     required this.group,
+    required this.expanded,
+    required this.onExpand,
     required this.inFlight,
     required this.onToggle,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+    final followedChildren = group.children.where((c) => c.followed).length;
+    final badge = group.parent.followed
+        ? 'Whole sector'
+        : followedChildren > 0
+            ? '$followedChildren following'
+            : null;
+    final count = group.children.length;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            group.parent.name.toUpperCase(),
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF94A3B8),
-              letterSpacing: 0.8,
+          InkWell(
+            key: Key('sector-${group.parent.id}'),
+            onTap: onExpand,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text.rich(
+                      TextSpan(
+                        text: group.parent.name,
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFF0F172A),
+                        ),
+                        children: [
+                          TextSpan(
+                            text: count == 1 ? '  1 category' : '  $count categories',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w400,
+                              color: const Color(0xFF94A3B8),
+                            ),
+                          ),
+                        ],
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (badge != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F172A),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        badge,
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  const SizedBox(width: 4),
+                  AnimatedRotation(
+                    turns: expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: const Icon(Icons.expand_more_rounded, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _TopicChip(
-                category: group.parent,
-                inFlight: inFlight,
-                onToggle: onToggle,
-                isSector: true,
-              ),
-              ...group.children.map((child) => _TopicChip(
-                    category: child,
-                    inFlight: inFlight,
-                    onToggle: onToggle,
-                  )),
-            ],
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: !expanded
+                ? const SizedBox(width: double.infinity)
+                : Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _TopicChip(
+                          category: group.parent,
+                          label: 'All of ${group.parent.name}',
+                          inFlight: inFlight,
+                          onToggle: onToggle,
+                          isSector: true,
+                        ),
+                        ...group.children.map((child) => _TopicChip(
+                              category: child,
+                              inFlight: inFlight,
+                              onToggle: onToggle,
+                            )),
+                      ],
+                    ),
+                  ),
           ),
-          const SizedBox(height: 4),
-          const Divider(color: Color(0xFFE2E8F0), height: 24),
         ],
       ),
     );
@@ -403,12 +587,14 @@ class _TopicGroupSection extends StatelessWidget {
 
 class _TopicChip extends StatelessWidget {
   final TopicCategory category;
+  final String? label;
   final Set<String> inFlight;
   final void Function(TopicCategory) onToggle;
   final bool isSector;
 
   const _TopicChip({
     required this.category,
+    this.label,
     required this.inFlight,
     required this.onToggle,
     this.isSector = false,
@@ -454,7 +640,7 @@ class _TopicChip extends StatelessWidget {
               ),
             if (isLoading || followed) const SizedBox(width: 6),
             Text(
-              category.name,
+              label ?? category.name,
               style: GoogleFonts.inter(
                 fontSize: isSector ? 13 : 12,
                 fontWeight: isSector ? FontWeight.w700 : FontWeight.w500,
