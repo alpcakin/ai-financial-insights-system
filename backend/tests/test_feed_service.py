@@ -199,7 +199,9 @@ def test_get_feed_no_filter_merges_analysis_and_reads_fallback_flag():
     db = MagicMock()
 
     count_mock = MagicMock()
-    count_mock.execute.return_value.count = 1
+    count_mock.execute.return_value.count = 30
+    unread_mock = count_mock.not_.is_.return_value.limit.return_value
+    unread_mock.execute.return_value.count = 12
 
     page_mock = MagicMock()
     page_mock.execute.return_value.data = [
@@ -207,12 +209,9 @@ def test_get_feed_no_filter_merges_analysis_and_reads_fallback_flag():
          "articles": ARTICLE, "article_analyses": ANALYSIS}
     ]
 
-    calls = [0]
-
     def make_select(cols, **kwargs):
         m = MagicMock()
-        if calls[0] == 0:
-            calls[0] += 1
+        if kwargs.get("count") == "exact":
             m.eq.return_value = count_mock
         else:
             m.eq.return_value.order.return_value.range.return_value = page_mock
@@ -221,7 +220,10 @@ def test_get_feed_no_filter_merges_analysis_and_reads_fallback_flag():
     db.table.return_value.select.side_effect = make_select
     db.rpc.return_value.execute.return_value.data = [{"name": "Tech", "followed": True}]
     result = get_feed(db, "u1", 20, 0, None)
-    assert result["total"] == 1
+    assert result["total"] == 30
+    # A NULL read counts as unread, as the app shows it.
+    count_mock.not_.is_.assert_called_with("read", True)
+    assert result["unread"] == 12
     assert result["categories"] == [{"name": "Tech", "followed": True}]
     article = result["articles"][0]
     assert article["title"] == "T"
@@ -233,13 +235,14 @@ def test_get_feed_no_filter_merges_analysis_and_reads_fallback_flag():
     assert article["read"] is False
 
 
-def _category_db(picked, rows, categories=()):
+def _category_db(picked, rows, categories=(), unread=0):
     """``picked`` is what feed_category_page returns, ``rows`` the feed entries."""
     db = MagicMock()
+    answers = {"feed_category_page": list(picked), "feed_categories": list(categories), "feed_category_unread": unread}
 
     def rpc(name, params):
         call = MagicMock()
-        call.execute.return_value.data = list(picked if name == "feed_category_page" else categories)
+        call.execute.return_value.data = answers[name]
         return call
 
     db.rpc.side_effect = rpc
@@ -286,6 +289,13 @@ def test_get_feed_lists_every_category_on_the_first_page_whatever_is_selected():
     assert get_feed(db, "u1", 20, 0, "Tech")["categories"] == categories
     db.rpc.assert_any_call("feed_categories", {"p_user_id": "u1"})
     assert "categories" not in get_feed(db, "u1", 20, 20, "Tech")
+
+
+def test_get_feed_counts_the_unread_entries_of_the_whole_category_on_the_first_page():
+    db = _category_db([{"entry_id": "f1", "total": 30}], [_entry("f1", "T")], unread=9)
+    assert get_feed(db, "u1", 20, 0, "Tech")["unread"] == 9
+    db.rpc.assert_any_call("feed_category_unread", {"p_user_id": "u1", "p_category": "Tech"})
+    assert "unread" not in get_feed(db, "u1", 20, 20, "Tech")
 
 
 def test_mark_read():

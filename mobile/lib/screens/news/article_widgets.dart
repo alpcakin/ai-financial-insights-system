@@ -8,14 +8,27 @@ import '../../data/models/news_models.dart';
 import '../../data/repositories/news_repository.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/news_provider.dart';
+import '../../providers/portfolio_provider.dart';
+import '../../providers/watchlist_provider.dart';
 import '../../widgets/advice_notice.dart';
 import '../../widgets/ai_provider_badge.dart';
 
-class ArticleCard extends StatelessWidget {
+class ArticleCard extends ConsumerWidget {
   final FeedArticle article;
   final VoidCallback onTap;
 
   const ArticleCard({super.key, required this.article, required this.onTap});
+
+  /// The story's impacts on the user's own assets, strongest first. Every related
+  /// asset has an impact, so none of the user's assets is left out.
+  List<AssetImpact> _myImpacts(WidgetRef ref) {
+    final mine = {
+      for (final a in ref.watch(portfolioProvider).assets) a.assetSymbol,
+      for (final i in ref.watch(watchlistProvider).items) i.assetSymbol,
+    };
+    return article.assetImpacts.where((i) => mine.contains(i.symbol)).toList()
+      ..sort((a, b) => b.severity.compareTo(a.severity));
+  }
 
   Color _sentimentColor() {
     switch (article.sentimentLabel?.toLowerCase()) {
@@ -42,7 +55,9 @@ class ArticleCard extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final myImpacts = _myImpacts(ref).take(3).toList();
+
     return Opacity(
       opacity: article.read ? 0.72 : 1.0,
       child: GestureDetector(
@@ -116,6 +131,14 @@ class ArticleCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
+              if (myImpacts.isNotEmpty) ...[
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: myImpacts.map((i) => _MyImpactChip(impact: i)).toList(),
+                ),
+                const SizedBox(height: 8),
+              ],
               Text(
                 article.title,
                 maxLines: 2,
@@ -168,28 +191,54 @@ class ArticleCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                  ...article.relatedAssets.take(3).map(
-                    (sym) => Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        sym,
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF334155),
-                        ),
-                      ),
-                    ),
-                  ),
                   ...article.matchedTopics.take(2).map((topic) => _TopicTag(topic)),
                 ],
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The story's effect on one of the user's own assets: direction and level.
+class _MyImpactChip extends StatelessWidget {
+  final AssetImpact impact;
+
+  const _MyImpactChip({required this.impact});
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color) = switch (impact.impact.toLowerCase()) {
+      'positive' => (Icons.arrow_upward_rounded, const Color(0xFF34D399)),
+      'negative' => (Icons.arrow_downward_rounded, const Color(0xFFF87171)),
+      _ => (Icons.remove_rounded, const Color(0xFFCBD5E1)),
+    };
+    return Semantics(
+      label: '${impact.symbol}: ${impact.impact}, ${severityLabel(impact.severity)}',
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F172A),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              impact.symbol,
+              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
+            ),
+            const SizedBox(width: 4),
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 2),
+            Text(
+              severityLabel(impact.severity),
+              style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+            ),
+          ],
         ),
       ),
     );

@@ -6,6 +6,8 @@ import '../../data/models/asset_catalog.dart';
 import '../../data/models/news_models.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/news_provider.dart';
+import '../../providers/portfolio_provider.dart';
+import '../../providers/watchlist_provider.dart';
 import '../home/asset_browser_modal.dart';
 import '../topics/topics_screen.dart';
 import 'article_widgets.dart';
@@ -70,7 +72,14 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
     final state = ref.watch(newsProvider);
     final categories = state.categories;
     final selected = state.selectedCategory;
-    final unread = state.articles.where((a) => !a.read).length;
+    final unread = state.unread;
+
+    // With stories on screen a failed refresh keeps them and says so here.
+    ref.listen<String?>(newsProvider.select((s) => s.error), (_, error) {
+      if (error != null && ref.read(newsProvider).articles.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -156,35 +165,9 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
                       ? ListView(
                           physics: const AlwaysScrollableScrollPhysics(),
                           children: [
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 80),
-                              child: Center(
-                                child: Column(
-                                  children: [
-                                    const Icon(Icons.article_outlined, size: 48, color: Color(0xFFCBD5E1)),
-                                    const SizedBox(height: 12),
-                                    Text(
-                                      'No articles yet',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                        color: const Color(0xFF475569),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(horizontal: 32),
-                                      child: Text(
-                                        'News reaches your feed when it matches your portfolio, watchlist or topics. '
-                                        'Add an asset, or use search to read about one.',
-                                        textAlign: TextAlign.center,
-                                        style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8), height: 1.4),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
+                            state.error != null
+                                ? _LoadError(message: state.error!, onRetry: _refresh)
+                                : const _EmptyFeed(),
                           ],
                         )
                       : ListView.builder(
@@ -216,6 +199,91 @@ class _NewsFeedScreenState extends ConsumerState<NewsFeedScreen> {
       ref.read(newsProvider.notifier).markRead(token, article.id);
     }
     showArticleDetail(context, article);
+  }
+}
+
+/// The feed only holds stories that arrived after an asset or topic was added,
+/// so a new user starts with none. Recent news about their assets is offered
+/// instead, read on demand and not copied into the feed.
+class _EmptyFeed extends ConsumerWidget {
+  const _EmptyFeed();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final symbols = {
+      for (final a in ref.watch(portfolioProvider).assets) a.assetSymbol,
+      for (final i in ref.watch(watchlistProvider).items) i.assetSymbol,
+    }.toList();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 32),
+      child: Column(
+        children: [
+          const Icon(Icons.article_outlined, size: 48, color: Color(0xFFCBD5E1)),
+          const SizedBox(height: 12),
+          Text(
+            'No articles yet',
+            style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, color: const Color(0xFF475569)),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            symbols.isEmpty
+                ? 'News reaches your feed when it matches your portfolio, watchlist or topics. '
+                    'Add an asset, or use search to read about one.'
+                : 'New stories about your assets and topics reach your feed as they arrive. '
+                    'Until then, read what was already analyzed about your assets:',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8), height: 1.4),
+          ),
+          if (symbols.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: symbols
+                  .map((symbol) => ActionChip(
+                        label: Text(symbol),
+                        onPressed: () => openAssetPage(context, ref, symbol),
+                      ))
+                  .toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _LoadError extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _LoadError({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 80, horizontal: 32),
+      child: Column(
+        children: [
+          const Icon(Icons.cloud_off_rounded, size: 48, color: Color(0xFFCBD5E1)),
+          const SizedBox(height: 12),
+          Text(
+            "Couldn't load your news",
+            style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w600, color: const Color(0xFF475569)),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF94A3B8), height: 1.4),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
+        ],
+      ),
+    );
   }
 }
 

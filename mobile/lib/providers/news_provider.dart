@@ -10,6 +10,9 @@ class NewsState {
 
   /// Every category in the feed, followed ones first; the filter's choices.
   final List<FeedCategory> categories;
+
+  /// Unread stories in the whole view, counted by the server, not just the loaded ones.
+  final int unread;
   final bool isLoading;
   final String? error;
   final String? selectedCategory;
@@ -19,6 +22,7 @@ class NewsState {
   const NewsState({
     this.articles = const [],
     this.categories = const [],
+    this.unread = 0,
     this.isLoading = false,
     this.error,
     this.selectedCategory,
@@ -29,6 +33,7 @@ class NewsState {
   NewsState copyWith({
     List<FeedArticle>? articles,
     List<FeedCategory>? categories,
+    int? unread,
     bool? isLoading,
     String? error,
     String? selectedCategory,
@@ -39,6 +44,7 @@ class NewsState {
       NewsState(
         articles: articles ?? this.articles,
         categories: categories ?? this.categories,
+        unread: unread ?? this.unread,
         isLoading: isLoading ?? this.isLoading,
         error: clearError ? null : error ?? this.error,
         selectedCategory: selectedCategory ?? this.selectedCategory,
@@ -75,6 +81,7 @@ class NewsNotifier extends StateNotifier<NewsState> {
       state = state.copyWith(
         articles: response.articles,
         categories: response.categories,
+        unread: response.unread ?? 0,
         isLoading: false,
         hasMore: response.articles.length >= _pageSize,
       );
@@ -114,18 +121,28 @@ class NewsNotifier extends StateNotifier<NewsState> {
 
   Future<void> refresh(String token) => load(token);
 
+  /// The previous view's stories are dropped at once, so a category that fails
+  /// to load shows the error instead of another category's stories.
   Future<void> setCategory(String token, String? category) async {
-    state = state.copyWith(selectedCategory: category ?? '');
+    state = state.copyWith(
+      selectedCategory: category ?? '',
+      articles: const [],
+      unread: 0,
+      hasMore: true,
+      clearError: true,
+    );
     await load(token);
   }
 
   Future<void> markRead(String token, String articleId) async {
     try {
       await _repository.markRead(token, articleId);
+      final wasUnread = state.articles.any((a) => a.id == articleId && !a.read);
       state = state.copyWith(
         articles: state.articles
             .map((a) => a.id == articleId ? a.copyWith(read: true) : a)
             .toList(),
+        unread: wasUnread && state.unread > 0 ? state.unread - 1 : state.unread,
       );
     } catch (_) {}
   }

@@ -285,6 +285,20 @@ def _category_page(db: Client, user_id: str, category: str, limit: int, offset: 
     return [by_id[i] for i in ids if i in by_id], picked[0]["total"]
 
 
+def _unread_count(db: Client, user_id: str, category: str | None) -> int:
+    """Unread entries in the whole view, not just the loaded page (migration 034)."""
+    if category:
+        return db.rpc("feed_category_unread", {"p_user_id": user_id, "p_category": category}).execute().data or 0
+    return (
+        db.table("user_news_feed")
+        .select("id", count="exact")
+        .eq("user_id", user_id)
+        .not_.is_("read", True)
+        .limit(1)
+        .execute()
+    ).count or 0
+
+
 def get_feed(
     db: Client,
     user_id: str,
@@ -294,7 +308,8 @@ def get_feed(
 ) -> dict:
     """A page of the user's feed, newest first, optionally in one category. The first
     page also lists every category in the feed, followed ones first, so the app's
-    filter shows the same choices whichever one is selected."""
+    filter shows the same choices whichever one is selected, and counts the unread
+    entries of the view."""
     if category:
         page, total = _category_page(db, user_id, category, limit, offset)
     else:
@@ -319,6 +334,7 @@ def get_feed(
     result = {"articles": articles, "total": total, "offset": offset, "limit": limit}
     if offset == 0:
         result["categories"] = db.rpc("feed_categories", {"p_user_id": user_id}).execute().data or []
+        result["unread"] = _unread_count(db, user_id, category)
     return result
 
 

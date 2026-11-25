@@ -24,9 +24,11 @@ def chain_mock(data, count=None):
     m.execute.return_value = result
     for method in [
         "select", "eq", "in_", "order", "range", "upsert",
-        "insert", "update", "delete", "not_", "gte", "lte", "lt", "neq", "is_", "ilike", "limit",
+        "insert", "update", "delete", "gte", "lte", "lt", "neq", "is_", "ilike", "limit",
     ]:
         getattr(m, method).return_value = m
+    # postgrest's not_ is a property, not a call.
+    m.not_ = m
     return m
 
 

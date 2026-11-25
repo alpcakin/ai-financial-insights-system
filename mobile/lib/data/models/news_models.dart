@@ -195,12 +195,16 @@ class FeedResponse {
   /// Every category in the feed, followed ones first. Only the first page has it.
   final List<FeedCategory>? categories;
 
+  /// Unread stories in the whole view, not just this page. Only the first page has it.
+  final int? unread;
+
   const FeedResponse({
     required this.articles,
     required this.total,
     required this.offset,
     required this.limit,
     this.categories,
+    this.unread,
   });
 
   factory FeedResponse.fromJson(Map<String, dynamic> json) => FeedResponse(
@@ -213,6 +217,7 @@ class FeedResponse {
         categories: (json['categories'] as List<dynamic>?)
             ?.map((e) => FeedCategory.fromJson(e as Map<String, dynamic>))
             .toList(),
+        unread: json['unread'] as int?,
       );
 }
 

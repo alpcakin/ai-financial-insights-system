@@ -182,13 +182,14 @@ def test_get_feed_200(client, mock_db):
     r = client.get("/feed")
     assert r.status_code == 200
     assert r.json()["categories"] == [{"name": "Banking", "followed": True}]
+    assert r.json()["unread"] == 0
 
 
 def test_get_feed_by_category_200(client, mock_db):
     mock_db.rpc.return_value.execute.return_value.data = []
     r = client.get("/feed", params={"category": "Banking"})
     assert r.status_code == 200
-    assert r.json()["articles"] == [] and r.json()["total"] == 0
+    assert r.json()["articles"] == [] and r.json()["total"] == 0 and r.json()["unread"] == 0
 
 
 def test_asset_news_200(client, mock_db):

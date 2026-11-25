@@ -51,6 +51,8 @@ class FeedResponse(BaseModel):
     limit: int
     # Every category in the user's feed, followed ones first; on the feed's first page only.
     categories: list[FeedCategory] | None = None
+    # Unread entries in the whole view (the feed or the chosen category); first page only.
+    unread: int | None = None
 
 
 class ArticleAnalysis(BaseModel):
